@@ -12,7 +12,7 @@ RUN cargo build --release
 FROM node:20-alpine AS node-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --only=production
 COPY frontend/ ./
 RUN npm run build
 
