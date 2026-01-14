@@ -1147,7 +1147,8 @@ if __name__ == "__main__":
     os.environ["RCLONE_RC_USER"] = args.rclone_user
     os.environ["RCLONE_RC_PASS"] = args.rclone_pass
 
-    print("🚀 Starting Rclone Web GUI (Python)..."    print(f"📱 Web interface: http://{args.host}:{args.port}")
+    print("🚀 Starting Rclone Web GUI (Python)...")
+    print(f"📱 Web interface: http://{args.host}:{args.port}")
     print(f"🔗 Rclone RC URL: {args.rclone_url}")
     print("Press Ctrl+C to stop")
 
