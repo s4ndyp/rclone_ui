@@ -17,7 +17,11 @@ if [ ! -f "frontend/package-lock.json" ]; then
 fi
 
 # Build de image
-echo "🔨 Building Docker image..."
+echo "🔨 Building Docker image (this may take several minutes)..."
+echo "   - Building Rust backend with Cargo..."
+echo "   - Installing Node.js dependencies..."
+echo "   - Building React frontend..."
+echo "   - Setting up rclone and runtime environment..."
 docker build -t rclone-web-gui:latest .
 
 if [ $? -eq 0 ]; then

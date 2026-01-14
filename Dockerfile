@@ -1,7 +1,7 @@
 # Multi-stage build voor rclone-web-gui
 
 # Stage 1: Build Rust backend
-FROM rust:1.75-slim AS rust-builder
+FROM rust:1.83-slim AS rust-builder
 WORKDIR /app/backend
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/src ./src

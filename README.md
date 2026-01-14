@@ -28,6 +28,7 @@ Het project bestaat uit twee componenten:
 
 ### Voor Docker installatie:
 - [Docker](https://docker.com/) en Docker Compose
+- Minimaal 2GB RAM aanbevolen voor de build
 
 ### Voor handmatige installatie:
 - [Rust](https://rustup.rs/) (voor backend)
@@ -122,6 +123,27 @@ docker-compose exec rclone-web-gui bash
 - **Web GUI**: http://localhost:8080
 - **Backend API**: http://localhost:3001
 - **Rclone RC**: http://localhost:5572
+
+### Troubleshooting
+
+**Build problemen:**
+```bash
+# Build logs bekijken
+docker build -t rclone-web-gui:latest . --progress=plain
+
+# Cache legen en opnieuw proberen
+docker system prune -f
+docker build --no-cache -t rclone-web-gui:latest .
+
+# Container logs bekijken
+docker-compose logs -f
+```
+
+**Vaak voorkomende problemen:**
+- **Rust versie error**: Zorg dat Docker image up-to-date is
+- **Out of memory**: Vergroot Docker memory limit naar minimaal 2GB
+- **Permission errors**: Controleer dat Docker daemon draait
+- **Port conflicts**: Verander poorten in docker-compose.yml indien nodig
 
 ### Environment Variables (Docker)
 
