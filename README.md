@@ -30,7 +30,7 @@ Een moderne webinterface voor rclone gebouwd met Python FastAPI backend en vanil
 
 ## 🚀 Snel Start (Docker)
 
-1. **Clone en bouw**:
+1. **Clone en setup**:
    ```bash
    git clone <repository-url>
    cd rclone-web-gui-python
@@ -44,7 +44,7 @@ Een moderne webinterface voor rclone gebouwd met Python FastAPI backend en vanil
 
 3. **Open browser**: http://localhost:8080
 
-**Klaar!** De applicatie draait nu volledig in Docker containers.
+**Klaar!** De applicatie draait nu volledig in één Docker container met alles ingebouwd.
 
 ## 📋 Vereisten
 
@@ -148,14 +148,14 @@ docker-compose logs -f
 # Stop services
 docker-compose down
 
-# Rebuild na wijzigingen
-docker-compose build --no-cache
+# Update naar nieuwste versie
+docker-compose pull && docker-compose up -d
 
 # Toegang tot container shell
 docker-compose exec rclone-web-gui-python bash
 
-# Update naar nieuwste versie
-docker-compose pull && docker-compose up -d
+# Force refresh van image
+docker pull ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest
 ```
 
 ## 🔍 Troubleshooting

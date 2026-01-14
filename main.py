@@ -1152,4 +1152,14 @@ if __name__ == "__main__":
     print(f"🔗 Rclone RC URL: {args.rclone_url}")
     print("Press Ctrl+C to stop")
 
+    # Test rclone RC connection before starting
+    rclone_client = RcloneClient(args.rclone_url, args.rclone_user, args.rclone_pass)
+    try:
+        print("🔍 Testing rclone RC connection...")
+        result = rclone_client.health_check()
+        print("✅ Rclone RC connection successful")
+    except Exception as e:
+        print(f"❌ Failed to connect to rclone RC: {e}")
+        print("⚠️  Starting web server anyway, but API calls will fail")
+
     uvicorn.run(app, host=args.host, port=args.port)

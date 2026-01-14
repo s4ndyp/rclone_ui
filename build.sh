@@ -1,6 +1,6 @@
 #!/bin/bash
 
-echo "🐍 Building Rclone Web GUI (Python)..."
+echo "🐍 Setting up Rclone Web GUI (Python)..."
 
 # Controleer of Docker draait
 if ! docker info > /dev/null 2>&1; then
@@ -15,12 +15,12 @@ if [ ! -f ".env" ]; then
     echo "✅ Created .env file. You can edit it to customize settings."
 fi
 
-# Build de image
-echo "🔨 Building Docker images..."
-docker-compose build
+# Pull de image
+echo "📥 Pulling Docker image: ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest"
+docker pull ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest
 
 if [ $? -eq 0 ]; then
-    echo "✅ Build completed successfully!"
+    echo "✅ Image pull completed successfully!"
     echo ""
     echo "🚀 To start the application:"
     echo "   docker-compose up -d"
@@ -33,13 +33,13 @@ if [ $? -eq 0 ]; then
     echo "🛑 Stop: docker-compose down"
     echo ""
     echo "⚙️  Edit .env file to customize settings"
-else
-    echo "❌ Build failed!"
     echo ""
-    echo "🔍 Check the Docker build output above for error details."
-    echo "   Common issues:"
-    echo "   - Network issues during pip install"
-    echo "   - Missing Python dependencies"
-    echo "   - Docker daemon issues"
+    echo "🔄 If you want to update to the latest version:"
+    echo "   docker pull ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest"
+else
+    echo "❌ Failed to pull image!"
+    echo ""
+    echo "🔍 Check your internet connection and try again."
+    echo "   Or verify the image name: ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest"
     exit 1
 fi

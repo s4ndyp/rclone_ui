@@ -1,17 +1,17 @@
 version: '3.8'
 
 services:
-  rclone-web-gui-python:
+  rclone-web-gui:
     build:
       context: .
       dockerfile: Dockerfile
+    # image: ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest
     ports:
       - "8080:8000"    # Web interface
-      - "5572:5572"    # Rclone RC (forwarded from host)
     volumes:
       - rclone-data:/data  # Persistent rclone config
     environment:
-      - RCLONE_RC_URL=http://host.docker.internal:5572
+      - RCLONE_RC_URL=http://localhost:5572
       - RCLONE_RC_USER=${RCLONE_RC_USER:-admin}
       - RCLONE_RC_PASS=${RCLONE_RC_PASS:-secret}
     restart: unless-stopped
@@ -20,26 +20,7 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    depends_on:
-      - rclone-rc
-
-  rclone-rc:
-    image: rclone/rclone:latest
-    command: rcd --rc-addr=0.0.0.0:5572 --rc-user=admin --rc-pass=secret --rc-allow-origin="*"
-    ports:
-      - "5572:5572"
-    volumes:
-      - rclone-data:/data
-      - ${HOME}/.config/rclone:/config:ro
-    environment:
-      - RCLONE_CONFIG=/data/rclone.conf
-    restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5572/"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      start_period: 30s
 
 volumes:
   rclone-data:

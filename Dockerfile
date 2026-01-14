@@ -21,8 +21,10 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
+# Copy application code and startup script
 COPY main.py .
+COPY startup.sh .
+RUN chmod +x startup.sh
 
 # Create data directory for rclone config
 RUN mkdir -p /data
@@ -37,8 +39,8 @@ ENV RCLONE_CONFIG=/data/rclone.conf
 EXPOSE 8000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-# Start the application
-CMD ["python", "main.py", "--host", "0.0.0.0", "--port", "8000"]
+# Start the application with startup script
+CMD ["./startup.sh"]
