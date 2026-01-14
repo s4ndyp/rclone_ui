@@ -17,7 +17,7 @@ fi
 
 # Pull de image
 echo "📥 Pulling Docker image: ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest"
-docker pull ghcr.io/s4ndyp/rclone_ui/rclone_ui:latest
+docker pull ghcr.io/s4ndyp/rclone_ui:latest
 
 if [ $? -eq 0 ]; then
     echo "✅ Image pull completed successfully!"
