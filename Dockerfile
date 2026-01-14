@@ -11,9 +11,8 @@ RUN cargo build --release
 # Stage 2: Build React frontend
 FROM node:20-alpine AS node-builder
 WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci --only=production
 COPY frontend/ ./
+RUN npm install
 RUN npm run build
 
 # Stage 3: Runtime image

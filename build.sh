@@ -8,13 +8,7 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-# Controleer of package-lock.json bestaat
-if [ ! -f "frontend/package-lock.json" ]; then
-    echo "⚠️  package-lock.json not found in frontend directory. Creating one..."
-    cd frontend
-    npm install --package-lock-only
-    cd ..
-fi
+# Note: package-lock.json wordt automatisch gegenereerd tijdens de Docker build
 
 # Build de image
 echo "🔨 Building Docker image (this may take several minutes)..."
