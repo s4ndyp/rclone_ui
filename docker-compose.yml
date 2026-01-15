@@ -1,0 +1,32 @@
+services:
+  rclone:
+    image: rclone/rclone:latest
+    container_name: rclone
+    restart: unless-stopped
+    command: rcd --rc-addr :5572 --rc-no-auth --rc-allow-origin "*"
+    ports:
+      - "5572:5572"
+    volumes:
+      - ./rclone/config:/config/rclone
+      - ./rclone/data:/data
+      # Uncomment the following if you want to use mounts on the host
+      # - /path/to/host/mounts:/mnt:shared
+    # Privileged and fuse are needed for rclone mount to work inside docker
+    privileged: true
+    devices:
+      - /dev/fuse:/dev/fuse
+
+  manager:
+    build: .
+    container_name: rclone-manager
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - RCLONE_RC_URL=http://rclone:5572
+      - JOBS_FILE=/data/jobs.json
+    volumes:
+      - ./data:/data
+    depends_on:
+      - rclone
+

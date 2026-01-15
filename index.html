@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="nl" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rclone Manager - Backup & Mount</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: { 
+                extend: { 
+                    colors: { 
+                        rclone: '#005BBB',
+                        darkbg: '#181924',
+                        darkcard: '#212333',
+                        darkborder: '#2f314a'
+                    } 
+                } 
+            }
+        }
+    </script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #181924; }
+        ::-webkit-scrollbar-thumb { background: #2f314a; border-radius: 4px; }
+        .active-link { background-color: #2f314a; border-left: 4px solid #005BBB; }
+    </style>
+</head>
+<body class="bg-darkbg text-gray-200 font-sans h-screen flex overflow-hidden">
+
+    <!-- Sidebar -->
+    <aside class="w-64 bg-darkcard border-r border-darkborder flex flex-col">
+        <div class="p-6 border-b border-darkborder flex justify-between items-center">
+            <h1 class="text-xl font-bold text-white flex items-center gap-2">
+                <img src="https://rclone.org/img/logo_symbol.png" class="w-6 h-6" alt="R">
+                Rclone GUI
+            </h1>
+        </div>
+        
+        <nav class="mt-4 flex-1">
+            <div class="px-4 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Management</div>
+            <a href="#" onclick="showSection('backups')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition active-link" id="nav-backups">
+                <i class="fa-solid fa-save w-5 text-blue-400"></i> Backups
+            </a>
+            <a href="#" onclick="showSection('mounts')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition" id="nav-mounts">
+                <i class="fa-solid fa-folder-open w-5 text-green-400"></i> Mounts
+            </a>
+            <div class="px-4 mt-6 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Settings</div>
+            <a href="#" onclick="openConfigModal()" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition">
+                <i class="fa-solid fa-cog w-5 text-gray-400"></i> Rclone Config
+            </a>
+        </nav>
+
+        <div class="p-4 border-t border-darkborder">
+            <button onclick="openJobModal()" class="w-full bg-rclone hover:bg-blue-600 text-white py-2 rounded shadow-lg transition flex items-center justify-center gap-2">
+                <i class="fa-solid fa-plus-circle"></i> Nieuwe Taak
+            </button>
+        </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main class="flex-1 flex flex-col min-w-0 bg-darkbg">
+        <header class="h-16 border-b border-darkborder bg-darkcard flex items-center justify-between px-8">
+            <h2 id="sectionTitle" class="text-lg font-semibold">Backups</h2>
+            <div class="flex items-center gap-4">
+                <div id="connectionStatus" class="flex items-center gap-2 text-sm text-red-400">
+                    <span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken
+                </div>
+            </div>
+        </header>
+
+        <div class="flex-1 flex overflow-hidden">
+            <!-- Job List -->
+            <div class="w-1/3 border-r border-darkborder flex flex-col bg-darkbg/50">
+                <div id="jobList" class="flex-1 overflow-y-auto p-4 space-y-3">
+                    <!-- Jobs will be rendered here -->
+                </div>
+            </div>
+
+            <!-- Job Detail -->
+            <div class="flex-1 flex flex-col bg-darkbg overflow-y-auto">
+                <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-gray-500">
+                    <i class="fa-solid fa-layer-group text-6xl mb-4 text-darkborder"></i>
+                    <p>Selecteer een taak om details te bekijken</p>
+                </div>
+
+                <div id="jobDetail" class="hidden p-8 space-y-6">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 id="detailTitle" class="text-3xl font-bold text-white">Job Naam</h3>
+                            <p id="detailPaths" class="text-gray-400 mt-2 font-mono text-sm"></p>
+                            <div id="detailScheduleBadge" class="mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-900 text-blue-200">
+                                <i class="fa-solid fa-clock mr-1"></i> <span id="detailScheduleText">Geen planning</span>
+                            </div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="btnRunNow" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded flex items-center gap-2">
+                                <i class="fa-solid fa-play"></i> Start
+                            </button>
+                            <button id="btnEditJob" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded">
+                                <i class="fa-solid fa-edit"></i>
+                            </button>
+                            <button id="btnDeleteJob" class="bg-red-900/50 hover:bg-red-800 text-red-200 px-4 py-2 rounded border border-red-800/50">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Stats -->
+                    <div id="statsGrid" class="grid grid-cols-4 gap-4">
+                        <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Status</div>
+                            <div id="statStatus" class="text-xl font-bold mt-1">-</div>
+                        </div>
+                        <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Overgedragen</div>
+                            <div id="statBytes" class="text-xl font-bold mt-1 text-blue-400">0 MB</div>
+                        </div>
+                        <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Bestanden</div>
+                            <div id="statFiles" class="text-xl font-bold mt-1 text-green-400">0</div>
+                        </div>
+                        <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Snelheid</div>
+                            <div id="statSpeed" class="text-xl font-bold mt-1 text-yellow-400">-</div>
+                        </div>
+                    </div>
+
+                    <!-- History -->
+                    <div class="space-y-4">
+                        <h4 class="text-lg font-semibold flex items-center gap-2">
+                            <i class="fa-solid fa-history text-gray-500"></i> Geschiedenis
+                        </h4>
+                        <div class="bg-darkcard rounded-xl border border-darkborder overflow-hidden">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
+                                    <tr>
+                                        <th class="p-4">Datum</th>
+                                        <th class="p-4">Duur</th>
+                                        <th class="p-4">Status</th>
+                                        <th class="p-4 text-right">Grootte</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody" class="divide-y divide-darkborder">
+                                    <!-- History rows -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Job Modal -->
+    <div id="jobModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-darkcard p-8 rounded-2xl w-full max-w-lg border border-darkborder shadow-2xl">
+            <h3 id="modalTitle" class="text-2xl font-bold mb-6">Nieuwe Taak Configureren</h3>
+            <form id="jobForm" class="space-y-5">
+                <input type="hidden" id="editJobId">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="col-span-2">
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Naam Taak</label>
+                        <input type="text" id="jobName" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none" placeholder="Bijv. Google Drive Sync" required>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Type</label>
+                        <select id="jobType" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none">
+                            <option value="backup">Backup (Sync/Copy)</option>
+                            <option value="mount">Mount Remote</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Schedule (HH:MM)</label>
+                        <input type="text" id="jobSchedule" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="Bijv. 03:00">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Source (Remote:Pad of Lokaal Pad)</label>
+                    <input type="text" id="jobSource" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="C:\MijnData of drive:Backups" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
+                    <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                </div>
+                
+                <div class="flex justify-end gap-3 pt-4">
+                    <button type="button" onclick="closeJobModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
+                    <button type="submit" class="bg-rclone hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Opslaan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Config Modal -->
+    <div id="configModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-darkcard p-8 rounded-2xl w-full max-w-md border border-darkborder shadow-2xl">
+            <h3 class="text-xl font-bold mb-6">Rclone API Verbinding</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">API URL</label>
+                    <input type="text" id="rcloneUrl" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="http://127.0.0.1:5572" value="http://127.0.0.1:5572">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Gebruikersnaam</label>
+                    <input type="text" id="rcloneUser" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="Optioneel">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wachtwoord</label>
+                    <input type="password" id="rclonePass" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="Optioneel">
+                </div>
+                <p class="text-[10px] text-gray-500">Tip: Start rclone met --rc-allow-origin "*" om CORS problemen te voorkomen als je dit bestand direct opent.</p>
+            </div>
+            <div class="flex justify-end mt-8">
+                <button onclick="saveConfig()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg">Verbinding Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- STATE ---
+        let jobs = JSON.parse(localStorage.getItem('rclone_jobs')) || [];
+        let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
+        let activeJobId = null;
+        let activeSection = 'backups';
+        let monitoringInterval = null;
+
+        // --- API CORE ---
+        async function rcloneRequest(endpoint, body = {}) {
+            const isRelative = !endpoint.startsWith('http');
+            const url = isRelative ? `/rc/${endpoint}` : `${config.url}/${endpoint}`;
+            
+            const headers = { 'Content-Type': 'application/json' };
+            if (config.user && config.pass) {
+                headers['Authorization'] = 'Basic ' + btoa(config.user + ":" + config.pass);
+            }
+
+            try {
+                const response = await fetch(url, {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+                updateStatus(true);
+                return data;
+            } catch (e) {
+                // If relative fails, try absolute if it's different
+                if (isRelative && config.url !== window.location.origin) {
+                    try {
+                        const response = await fetch(`${config.url}/${endpoint}`, {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify(body)
+                        });
+                        const data = await response.json();
+                        updateStatus(true);
+                        return data;
+                    } catch (e2) {}
+                }
+                updateStatus(false);
+                return null;
+            }
+        }
+
+        async function syncWithServer() {
+            try {
+                const res = await fetch('/api/get_jobs');
+                if (res.ok) {
+                    jobs = await res.json();
+                    renderSidebar();
+                }
+            } catch (e) {
+                console.warn("Server sync failed, using local data.");
+            }
+        }
+
+        async function saveToServer() {
+            localStorage.setItem('rclone_jobs', JSON.stringify(jobs));
+            try {
+                await fetch('/api/jobs', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(jobs)
+                });
+            } catch (e) {}
+            renderSidebar();
+        }
+
+        function updateStatus(connected) {
+            const el = document.getElementById('connectionStatus');
+            if (connected) {
+                el.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-400"></span> Verbonden';
+                el.className = 'flex items-center gap-2 text-sm text-green-400';
+            } else {
+                el.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken';
+                el.className = 'flex items-center gap-2 text-sm text-red-400';
+            }
+        }
+
+        // --- UI LOGIC ---
+        function showSection(section) {
+            activeSection = section;
+            document.getElementById('sectionTitle').innerText = section === 'backups' ? 'Backups' : 'Mounts';
+            document.getElementById('nav-backups').classList.toggle('active-link', section === 'backups');
+            document.getElementById('nav-mounts').classList.toggle('active-link', section === 'mounts');
+            activeJobId = null;
+            renderSidebar();
+            document.getElementById('jobDetail').classList.add('hidden');
+            document.getElementById('emptyState').classList.remove('hidden');
+        }
+
+        function renderSidebar() {
+            const list = document.getElementById('jobList');
+            list.innerHTML = '';
+            const filteredJobs = jobs.filter(j => (j.type || 'backup') === (activeSection === 'backups' ? 'backup' : 'mount'));
+            
+            if (filteredJobs.length === 0) {
+                list.innerHTML = '<div class="text-center text-gray-600 py-10 text-sm italic">Geen taken gevonden</div>';
+                return;
+            }
+
+            filteredJobs.forEach(job => {
+                const div = document.createElement('div');
+                div.className = `p-4 rounded-xl cursor-pointer border transition ${activeJobId === job.id ? 'bg-darkcard border-rclone shadow-lg shadow-rclone/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
+                div.onclick = () => selectJob(job.id);
+                div.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <div class="font-bold text-white">${job.name}</div>
+                        ${job.schedule ? '<i class="fa-solid fa-clock text-[10px] text-blue-400"></i>' : ''}
+                    </div>
+                    <div class="text-xs text-gray-500 truncate">${job.source}</div>
+                `;
+                list.appendChild(div);
+            });
+        }
+
+        function selectJob(id) {
+            activeJobId = id;
+            renderSidebar();
+            const job = jobs.find(j => j.id === id);
+            
+            document.getElementById('emptyState').classList.add('hidden');
+            document.getElementById('jobDetail').classList.remove('hidden');
+
+            document.getElementById('detailTitle').innerText = job.name;
+            document.getElementById('detailPaths').innerText = `${job.source} \u2192 ${job.dest}`;
+            
+            const scheduleText = job.schedule ? `Gepland: ${job.schedule}` : "Geen planning";
+            document.getElementById('detailScheduleText').innerText = scheduleText;
+            document.getElementById('detailScheduleBadge').className = job.schedule ? 
+                'mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-900 text-blue-200' : 
+                'mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400';
+
+            document.getElementById('btnRunNow').onclick = () => startJob(id);
+            document.getElementById('btnEditJob').onclick = () => editJob(id);
+            document.getElementById('btnDeleteJob').onclick = () => deleteJob(id);
+
+            // Reset stats
+            document.getElementById('statStatus').innerText = "Gereed";
+            document.getElementById('statStatus').className = "text-xl font-bold mt-1 text-gray-400";
+            document.getElementById('statBytes').innerText = "0 MB";
+            document.getElementById('statFiles').innerText = "0";
+            document.getElementById('statSpeed').innerText = "-";
+
+            renderHistory(job);
+        }
+
+        function renderHistory(job) {
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '';
+            if (!job.history || job.history.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
+                return;
+            }
+
+            job.history.forEach(log => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td class="p-4 text-gray-300">${log.date}</td>
+                    <td class="p-4 text-gray-400">${log.duration || '-'}</td>
+                    <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">${log.status}</span></td>
+                    <td class="p-4 text-right text-gray-300 font-mono">${log.size || '-'}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        // --- ACTIONS ---
+        async function startJob(jobId) {
+            const job = jobs.find(j => j.id === jobId);
+            if (!job) return;
+
+            const uiStatus = document.getElementById('statStatus');
+            uiStatus.innerText = "Bezig met starten...";
+            uiStatus.className = "text-xl font-bold mt-1 text-yellow-400";
+
+            if (job.type === 'mount') {
+                const res = await rcloneRequest('mount/mount', { fs: job.source, mountPoint: job.dest });
+                if (res) {
+                    uiStatus.innerText = "Gemount";
+                    uiStatus.className = "text-xl font-bold mt-1 text-green-400";
+                    addLog(jobId, { status: 'Succes', date: new Date().toLocaleString(), duration: 'Permanent' });
+                } else {
+                    uiStatus.innerText = "Fout bij mounten";
+                    uiStatus.className = "text-xl font-bold mt-1 text-red-400";
+                }
+                return;
+            }
+
+            // Backup Job
+            const res = await rcloneRequest('sync/copy', { 
+                srcFs: job.source, 
+                dstFs: job.dest, 
+                _async: true, 
+                _stats: true 
+            });
+            
+            if (res && res.jobid) {
+                monitorJob(jobId, res.jobid);
+            } else {
+                alert("Kon job niet starten. Controleer rclone verbinding.");
+                uiStatus.innerText = "Fout";
+                uiStatus.className = "text-xl font-bold mt-1 text-red-400";
+            }
+        }
+
+        function monitorJob(internalJobId, rcloneJobId) {
+            clearInterval(monitoringInterval);
+            monitoringInterval = setInterval(async () => {
+                const statusRes = await rcloneRequest('job/status', { jobid: rcloneJobId });
+                const statsRes = await rcloneRequest('core/stats'); 
+                
+                if (activeJobId === internalJobId && statsRes) {
+                    document.getElementById('statBytes').innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
+                    document.getElementById('statSpeed').innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
+                    document.getElementById('statFiles').innerText = statsRes.transfers;
+                    document.getElementById('statStatus').innerText = "In uitvoering...";
+                }
+
+                if (statusRes && statusRes.finished) {
+                    clearInterval(monitoringInterval);
+                    const success = statusRes.success;
+                    const log = {
+                        date: new Date().toLocaleString(),
+                        duration: statsRes ? statsRes.elapsedTime.toFixed(1) + 's' : '?',
+                        status: success ? 'Succes' : 'Fout',
+                        size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?'
+                    };
+                    addLog(internalJobId, log);
+                    
+                    if (activeJobId === internalJobId) {
+                        const uiStatus = document.getElementById('statStatus');
+                        uiStatus.innerText = success ? "Voltooid" : "Mislukt";
+                        uiStatus.className = success ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+                        renderHistory(jobs.find(j => j.id === internalJobId));
+                    }
+                }
+            }, 2000);
+        }
+
+        function addLog(jobId, log) {
+            const job = jobs.find(j => j.id === jobId);
+            if (job) {
+                if (!job.history) job.history = [];
+                job.history.unshift(log);
+                if (job.history.length > 50) job.history.pop();
+                saveToServer();
+            }
+        }
+
+        function deleteJob(id) {
+            if(confirm('Weet je zeker dat je deze taak wilt verwijderen?')) {
+                jobs = jobs.filter(j => j.id !== id);
+                saveToServer();
+                activeJobId = null;
+                document.getElementById('jobDetail').classList.add('hidden');
+                document.getElementById('emptyState').classList.remove('hidden');
+            }
+        }
+
+        // --- MODALS ---
+        function openJobModal() {
+            document.getElementById('jobForm').reset();
+            document.getElementById('editJobId').value = '';
+            document.getElementById('modalTitle').innerText = "Nieuwe Taak Configureren";
+            document.getElementById('jobModal').classList.remove('hidden');
+        }
+
+        function editJob(id) {
+            const job = jobs.find(j => j.id === id);
+            document.getElementById('editJobId').value = job.id;
+            document.getElementById('jobName').value = job.name;
+            document.getElementById('jobType').value = job.type || 'backup';
+            document.getElementById('jobSchedule').value = job.schedule || '';
+            document.getElementById('jobSource').value = job.source;
+            document.getElementById('jobDest').value = job.dest;
+            document.getElementById('modalTitle').innerText = "Taak Bewerken";
+            document.getElementById('jobModal').classList.remove('hidden');
+        }
+
+        function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
+
+        document.getElementById('jobForm').onsubmit = (e) => {
+            e.preventDefault();
+            const id = document.getElementById('editJobId').value || Date.now().toString();
+            const name = document.getElementById('jobName').value;
+            const type = document.getElementById('jobType').value;
+            const schedule = document.getElementById('jobSchedule').value;
+            const source = document.getElementById('jobSource').value;
+            const dest = document.getElementById('jobDest').value;
+
+            const jobIndex = jobs.findIndex(j => j.id === id);
+            const jobData = {
+                id, name, type, schedule, source, dest,
+                history: jobIndex > -1 ? jobs[jobIndex].history : []
+            };
+
+            if (jobIndex > -1) jobs[jobIndex] = jobData;
+            else jobs.push(jobData);
+
+            saveToServer();
+            closeJobModal();
+            selectJob(id);
+        };
+
+        function openConfigModal() {
+            document.getElementById('rcloneUrl').value = config.url;
+            document.getElementById('rcloneUser').value = config.user;
+            document.getElementById('rclonePass').value = config.pass;
+            document.getElementById('configModal').classList.remove('hidden');
+        }
+
+        function saveConfig() {
+            config.url = document.getElementById('rcloneUrl').value;
+            config.user = document.getElementById('rcloneUser').value;
+            config.pass = document.getElementById('rclonePass').value;
+            localStorage.setItem('rclone_config', JSON.stringify(config));
+            document.getElementById('configModal').classList.add('hidden');
+            updateStatus(false); // Force check on next request
+            alert('Configuratie opgeslagen');
+        }
+
+        // --- INIT ---
+        syncWithServer();
+        renderSidebar();
+        // Initial connection check
+        rcloneRequest('core/version').then(res => updateStatus(!!res));
+    </script>
+</body>
+</html>
