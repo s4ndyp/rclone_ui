@@ -125,8 +125,9 @@
                             <div id="statBytes" class="text-xl font-bold mt-1 text-blue-400">0 MB</div>
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
-                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Bestanden</div>
-                            <div id="statFiles" class="text-xl font-bold mt-1 text-green-400">0</div>
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Bestanden (Gep/Ove)</div>
+                            <div id="statFiles" class="text-xl font-bold mt-1 text-green-400">0 / 0</div>
+                            <div id="statSkipped" class="text-[10px] text-gray-500 mt-1">0 overgeslagen</div>
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
                             <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Snelheid</div>
@@ -146,6 +147,7 @@
                                         <th class="p-4">Datum</th>
                                         <th class="p-4">Duur</th>
                                         <th class="p-4">Status</th>
+                                        <th class="p-4 text-right">Gem. Snelheid</th>
                                         <th class="p-4 text-right">Grootte</th>
                                     </tr>
                                 </thead>
@@ -348,6 +350,7 @@
         let jobs = JSON.parse(localStorage.getItem('rclone_jobs')) || [];
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
+        let activeRcloneJobId = null; // Track if a job is currently running
         let activeSection = 'backups';
         let monitoringInterval = null;
 
@@ -661,20 +664,43 @@
             const tbody = document.getElementById('historyTableBody');
             tbody.innerHTML = '';
             if (!job.history || job.history.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
                 return;
             }
 
             job.history.forEach(log => {
                 const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer";
+                tr.onclick = () => showHistoryDetails(log);
                 tr.innerHTML = `
                     <td class="p-4 text-gray-300">${log.date}</td>
                     <td class="p-4 text-gray-400">${log.duration || '-'}</td>
                     <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">${log.status}</span></td>
+                    <td class="p-4 text-right text-gray-400 font-mono">${log.speed || '-'}</td>
                     <td class="p-4 text-right text-gray-300 font-mono">${log.size || '-'}</td>
                 `;
                 tbody.appendChild(tr);
             });
+        }
+
+        function showHistoryDetails(log) {
+            // Als er een actieve job loopt (monitoringInterval is set), dan negeren we de klik om verwarring te voorkomen
+            if (monitoringInterval) return;
+
+            const uiStatus = document.getElementById('statStatus');
+            const uiBytes = document.getElementById('statBytes');
+            const uiFiles = document.getElementById('statFiles');
+            const uiSkipped = document.getElementById('statSkipped');
+            const uiSpeed = document.getElementById('statSpeed');
+
+            if (uiStatus) {
+                uiStatus.innerText = log.status;
+                uiStatus.className = log.status === 'Succes' ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+            }
+            if (uiBytes) uiBytes.innerText = log.size;
+            if (uiFiles) uiFiles.innerText = log.files || '-';
+            if (uiSkipped) uiSkipped.innerText = log.skipped ? `${log.skipped} overgeslagen` : '-';
+            if (uiSpeed) uiSpeed.innerText = log.speed || '-';
         }
 
         let targetInputId = null;
@@ -820,11 +846,13 @@
                     const uiBytes = document.getElementById('statBytes');
                     const uiSpeed = document.getElementById('statSpeed');
                     const uiFiles = document.getElementById('statFiles');
+                    const uiSkipped = document.getElementById('statSkipped');
                     const uiStatus = document.getElementById('statStatus');
 
                     if (uiBytes) uiBytes.innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
                     if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
-                    if (uiFiles) uiFiles.innerText = statsRes.transfers;
+                    if (uiFiles) uiFiles.innerText = `${statsRes.transfers} / ${statsRes.checks}`;
+                    if (uiSkipped) uiSkipped.innerText = `${statsRes.deletes + (statsRes.checks - statsRes.transfers)} overgeslagen`;
                     if (uiStatus) uiStatus.innerText = "In uitvoering...";
                 }
 
@@ -835,7 +863,10 @@
                         date: new Date().toLocaleString(),
                         duration: statsRes ? statsRes.elapsedTime.toFixed(1) + 's' : '?',
                         status: success ? 'Succes' : 'Fout',
-                        size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?'
+                        size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?',
+                        speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
+                        files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
+                        skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0
                     };
                     addLog(internalJobId, log);
                     
