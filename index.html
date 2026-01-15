@@ -47,6 +47,12 @@
             <a href="#" onclick="showSection('mounts')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition" id="nav-mounts">
                 <i class="fa-solid fa-folder-open w-5 text-green-400"></i> Mounts
             </a>
+            <a href="#" onclick="showSection('remotes')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition" id="nav-remotes">
+                <i class="fa-solid fa-database w-5 text-purple-400"></i> Remotes
+            </a>
+            <a href="#" onclick="showSection('browser')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition" id="nav-browser">
+                <i class="fa-solid fa-search w-5 text-yellow-400"></i> Verkenner
+            </a>
             <div class="px-4 mt-6 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Settings</div>
             <a href="#" onclick="openConfigModal()" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition">
                 <i class="fa-solid fa-cog w-5 text-gray-400"></i> Rclone Config
@@ -150,9 +156,78 @@
                         </div>
                     </div>
                 </div>
+
+                <div id="browserView" class="hidden flex-1 flex flex-col overflow-hidden">
+                    <div class="p-4 border-b border-darkborder bg-darkcard/30 flex gap-2 items-center">
+                        <input type="text" id="browserPath" class="flex-1 bg-darkbg border border-darkborder rounded p-2 text-sm font-mono" placeholder="remote:pad/naar/map">
+                        <button onclick="browsePath()" class="bg-rclone px-4 py-2 rounded text-sm font-bold">Open</button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <div id="browserBreadcrumbs" class="flex gap-2 text-xs text-gray-500 mb-4 px-2"></div>
+                        <div class="bg-darkcard rounded-xl border border-darkborder overflow-hidden">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
+                                    <tr>
+                                        <th class="p-3 w-8"></th>
+                                        <th class="p-3">Naam</th>
+                                        <th class="p-3 text-right">Grootte</th>
+                                        <th class="p-3 text-right">Datum</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="browserTableBody" class="divide-y divide-darkborder">
+                                    <!-- Files will be rendered here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="remotesView" class="hidden p-8 space-y-6">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-2xl font-bold text-white">Geconfigureerde Remotes</h3>
+                        <button onclick="openAddRemoteModal()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded flex items-center gap-2">
+                            <i class="fa-solid fa-plus"></i> Nieuwe Remote
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="remotesGrid">
+                        <!-- Remotes will be rendered here -->
+                    </div>
+                </div>
             </div>
         </div>
     </main>
+
+    <!-- Remote Modal -->
+    <div id="remoteModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
+        <div class="bg-darkcard p-8 rounded-2xl w-full max-w-lg border border-darkborder shadow-2xl">
+            <h3 class="text-2xl font-bold mb-6">Nieuwe SMB/CIFS Remote</h3>
+            <form id="remoteForm" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Naam (bijv. nas_source)</label>
+                    <input type="text" id="remoteName" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-purple-500 outline-none" placeholder="nas_share" required>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Host (IP of Hostnaam)</label>
+                    <input type="text" id="remoteHost" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="192.168.1.100" required>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Gebruikersnaam</label>
+                        <input type="text" id="remoteUser" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="admin">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wachtwoord</label>
+                        <input type="password" id="remotePass" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="*****">
+                    </div>
+                </div>
+                <p class="text-[10px] text-gray-500 mt-2">Let op: Dit maakt een SMB remote aan in de Rclone configuratie.</p>
+                <div class="flex justify-end gap-3 pt-4">
+                    <button type="button" onclick="closeRemoteModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
+                    <button type="submit" class="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Remote Opslaan</button>
+                </div>
+            </form>
+        </div>
+    </div>
 
     <!-- Job Modal -->
     <div id="jobModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
@@ -179,16 +254,31 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Source (Remote:Pad of Lokaal Pad)</label>
-                    <input type="text" id="jobSource" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="C:\MijnData of drive:Backups" required>
+                    <div class="flex gap-2">
+                        <input type="text" id="jobSource" class="flex-1 bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="C:\MijnData of drive:Backups" required>
+                        <button type="button" onclick="openPathSelector('jobSource')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
+                            <i class="fa-solid fa-folder-tree"></i>
+                        </button>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
-                    <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                    <div class="flex gap-2">
+                        <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                        <button type="button" onclick="openPathSelector('jobDest')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
+                            <i class="fa-solid fa-folder-tree"></i>
+                        </button>
+                    </div>
                 </div>
                 
-                <div class="flex justify-end gap-3 pt-4">
-                    <button type="button" onclick="closeJobModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
-                    <button type="submit" class="bg-rclone hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Opslaan</button>
+                <div class="flex justify-between items-center pt-4">
+                    <button type="button" id="btnDeleteInModal" onclick="deleteJobFromModal()" class="hidden bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-3 rounded-lg font-bold border border-red-800/50 transition">
+                        <i class="fa-solid fa-trash mr-2"></i> Verwijderen
+                    </button>
+                    <div class="flex gap-3 ml-auto">
+                        <button type="button" onclick="closeJobModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
+                        <button type="submit" class="bg-rclone hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Opslaan</button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -215,6 +305,40 @@
             </div>
             <div class="flex justify-end mt-8">
                 <button onclick="saveConfig()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg">Verbinding Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Path Selector Modal -->
+    <div id="pathSelectorModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-[60] p-4">
+        <div class="bg-darkcard p-6 rounded-2xl w-full max-w-2xl border border-darkborder shadow-2xl flex flex-col h-[80vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Pad Selecteren</h3>
+                <button onclick="closePathSelector()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-times"></i></button>
+            </div>
+            
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="selectorPath" class="flex-1 bg-darkbg border border-darkborder rounded p-2 text-sm font-mono" placeholder="Selecteer een remote of pad">
+                <button onclick="browseSelectorPath()" class="bg-rclone px-4 py-2 rounded text-sm font-bold">Open</button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto min-h-0 border border-darkborder rounded-xl bg-darkbg/30">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs sticky top-0">
+                        <tr>
+                            <th class="p-3 w-8"></th>
+                            <th class="p-3">Naam</th>
+                        </tr>
+                    </thead>
+                    <tbody id="selectorTableBody" class="divide-y divide-darkborder">
+                        <!-- Remotes/Folders will be rendered here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-6">
+                <button onclick="closePathSelector()" class="px-6 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
+                <button onclick="confirmPathSelection()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-2 rounded-lg font-bold shadow-lg transition">Selecteer Huidig Pad</button>
             </div>
         </div>
     </div>
@@ -303,13 +427,165 @@
         // --- UI LOGIC ---
         function showSection(section) {
             activeSection = section;
-            document.getElementById('sectionTitle').innerText = section === 'backups' ? 'Backups' : 'Mounts';
+            const titles = { 'backups': 'Backups', 'mounts': 'Mounts', 'browser': 'Bestandsverkenner', 'remotes': 'Remotes Beheren' };
+            document.getElementById('sectionTitle').innerText = titles[section] || 'Dashboard';
+            
             document.getElementById('nav-backups').classList.toggle('active-link', section === 'backups');
             document.getElementById('nav-mounts').classList.toggle('active-link', section === 'mounts');
+            document.getElementById('nav-remotes').classList.toggle('active-link', section === 'remotes');
+            document.getElementById('nav-browser').classList.toggle('active-link', section === 'browser');
+            
             activeJobId = null;
             renderSidebar();
+            
             document.getElementById('jobDetail').classList.add('hidden');
+            document.getElementById('browserView').classList.add('hidden');
+            document.getElementById('remotesView').classList.add('hidden');
             document.getElementById('emptyState').classList.remove('hidden');
+
+            if (section === 'browser') {
+                document.getElementById('emptyState').classList.add('hidden');
+                document.getElementById('browserView').classList.remove('hidden');
+            } else if (section === 'remotes') {
+                document.getElementById('emptyState').classList.add('hidden');
+                document.getElementById('remotesView').classList.remove('hidden');
+                loadRemotes();
+            }
+        }
+
+        async function browsePath(path) {
+            if (path !== undefined) document.getElementById('browserPath').value = path;
+            const fullPath = document.getElementById('browserPath').value;
+            if (!fullPath) return;
+
+            // Zorg dat we in de juiste sectie zijn
+            if (activeSection !== 'browser') showSection('browser');
+
+            const tbody = document.getElementById('browserTableBody');
+            tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Laden...</td></tr>';
+
+            // Split pad in fs en remote pad
+            let fs = fullPath;
+            let remotePath = "";
+            const colonIdx = fullPath.indexOf(':');
+            if (colonIdx !== -1) {
+                fs = fullPath.substring(0, colonIdx + 1);
+                remotePath = fullPath.substring(colonIdx + 1);
+            }
+
+            const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
+            if (!res || !res.list) {
+                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-red-400 italic">Kon map niet laden. Controleer het pad.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            
+            // "Terug" knop als we niet in de root zijn
+            if (remotePath && remotePath !== "/" && remotePath !== "\\") {
+                const parts = remotePath.replace(/[\\\/]$/, '').split(/[\\\/]/);
+                parts.pop();
+                const parentPath = parts.join('/');
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 cursor-pointer text-gray-400";
+                tr.onclick = () => browsePath(fs + parentPath);
+                tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-folder-open"></i></td><td class="p-3">.. (Vorige map)</td><td></td><td></td>`;
+                tbody.appendChild(tr);
+            }
+
+            res.list.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 transition border-b border-darkborder/50";
+                const isDir = item.IsDir;
+                
+                if (isDir) {
+                    tr.classList.add('cursor-pointer', 'text-blue-200');
+                    tr.onclick = () => browsePath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                }
+
+                const size = isDir ? '-' : (item.Size / 1024 / 1024).toFixed(2) + ' MB';
+                const date = new Date(item.ModTime).toLocaleDateString();
+
+                tr.innerHTML = `
+                    <td class="p-3 text-center text-gray-500">
+                        <i class="fa-solid ${isDir ? 'fa-folder text-yellow-500' : 'fa-file-lines text-blue-400'}"></i>
+                    </td>
+                    <td class="p-3 font-medium">${item.Name}</td>
+                    <td class="p-3 text-right text-gray-500 font-mono">${size}</td>
+                    <td class="p-3 text-right text-gray-400">${date}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        async function loadRemotes() {
+            const grid = document.getElementById('remotesGrid');
+            grid.innerHTML = '<div class="col-span-full text-center py-10"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Remotes laden...</div>';
+            
+            const res = await rcloneRequest('config/dump');
+            if (!res) {
+                grid.innerHTML = '<div class="col-span-full text-center text-red-400 py-10">Kon remotes niet laden.</div>';
+                return;
+            }
+
+            grid.innerHTML = '';
+            Object.keys(res).forEach(name => {
+                const config = res[name];
+                const card = document.createElement('div');
+                card.className = "bg-darkcard border border-darkborder p-5 rounded-xl space-y-3";
+                card.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <div class="font-bold text-lg text-white">${name}:</div>
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-tighter">${config.type}</div>
+                        </div>
+                        <button onclick="deleteRemote('${name}')" class="text-gray-600 hover:text-red-400 transition"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                    <div class="text-sm text-gray-400 font-mono truncate">
+                        ${config.host || config.service_account_file || 'Remote storage'}
+                    </div>
+                    <button onclick="browsePath('${name}:')" class="w-full mt-2 py-2 bg-darkborder hover:bg-gray-700 text-xs rounded transition uppercase font-bold">Bekijken in verkenner</button>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function openAddRemoteModal() { document.getElementById('remoteModal').classList.remove('hidden'); }
+        function closeRemoteModal() { document.getElementById('remoteModal').classList.add('hidden'); }
+
+        document.getElementById('remoteForm').onsubmit = async (e) => {
+            e.preventDefault();
+            const name = document.getElementById('remoteName').value;
+            const host = document.getElementById('remoteHost').value;
+            const user = document.getElementById('remoteUser').value;
+            const pass = document.getElementById('remotePass').value;
+
+            // Rclone config/create expects 'parameters' for the specific type
+            const params = {
+                name: name,
+                type: "smb",
+                parameters: {
+                    host: host,
+                    user: user,
+                    pass: pass
+                }
+            };
+
+            const res = await rcloneRequest('config/create', params);
+            if (res) {
+                alert('Remote succesvol aangemaakt!');
+                closeRemoteModal();
+                loadRemotes();
+            } else {
+                alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
+            }
+        };
+
+        async function deleteRemote(name) {
+            if (confirm(`Weet je zeker dat je remote '${name}' wilt verwijderen?`)) {
+                const res = await rcloneRequest('config/delete', { name: name });
+                if (res) loadRemotes();
+            }
         }
 
         function renderSidebar() {
@@ -324,14 +600,27 @@
 
             filteredJobs.forEach(job => {
                 const div = document.createElement('div');
-                div.className = `p-4 rounded-xl cursor-pointer border transition ${activeJobId === job.id ? 'bg-darkcard border-rclone shadow-lg shadow-rclone/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
-                div.onclick = () => selectJob(job.id);
+                div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-2 ${activeJobId === job.id ? 'bg-darkcard border-rclone shadow-lg shadow-rclone/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
+                div.onclick = (e) => {
+                    // Alleen selecteren als er niet op een knop is geklikt
+                    if (!e.target.closest('button')) selectJob(job.id);
+                };
                 div.innerHTML = `
-                    <div class="flex justify-between items-start mb-1">
-                        <div class="font-bold text-white">${job.name}</div>
-                        ${job.schedule ? '<i class="fa-solid fa-clock text-[10px] text-blue-400"></i>' : ''}
+                    <div class="flex justify-between items-start">
+                        <div class="min-w-0 flex-1">
+                            <div class="font-bold text-white truncate">${job.name}</div>
+                            <div class="text-[10px] text-gray-500 truncate mt-0.5">${job.source}</div>
+                        </div>
+                        ${job.schedule ? '<i class="fa-solid fa-clock text-[10px] text-blue-400 mt-1 ml-2"></i>' : ''}
                     </div>
-                    <div class="text-xs text-gray-500 truncate">${job.source}</div>
+                    <div class="flex gap-2 mt-1">
+                        <button onclick="startJob('${job.id}')" class="flex-1 bg-green-900/40 hover:bg-green-600 text-green-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-green-800/30">
+                            <i class="fa-solid fa-play text-[8px]"></i> START
+                        </button>
+                        <button onclick="editJob('${job.id}')" class="flex-1 bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30">
+                            <i class="fa-solid fa-edit text-[8px]"></i> EDIT
+                        </button>
+                    </div>
                 `;
                 list.appendChild(div);
             });
@@ -388,24 +677,116 @@
             });
         }
 
+        let targetInputId = null;
+
+        async function openPathSelector(inputId) {
+            targetInputId = inputId;
+            document.getElementById('selectorPath').value = document.getElementById(inputId).value;
+            document.getElementById('pathSelectorModal').classList.remove('hidden');
+            await browseSelectorPath();
+        }
+
+        function closePathSelector() {
+            document.getElementById('pathSelectorModal').classList.add('hidden');
+        }
+
+        async function browseSelectorPath(path) {
+            if (path !== undefined) document.getElementById('selectorPath').value = path;
+            const fullPath = document.getElementById('selectorPath').value;
+            const tbody = document.getElementById('selectorTableBody');
+            tbody.innerHTML = '<tr><td colspan="2" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Laden...</td></tr>';
+
+            if (!fullPath) {
+                // Toon remotes als er geen pad is
+                const res = await rcloneRequest('config/dump');
+                if (!res) {
+                    tbody.innerHTML = '<tr><td colspan="2" class="p-8 text-center text-red-400">Kon remotes niet laden.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = '';
+                Object.keys(res).forEach(name => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-darkborder/30 cursor-pointer text-blue-200";
+                    tr.onclick = () => browseSelectorPath(name + ':');
+                    tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-database text-purple-400"></i></td><td class="p-3">${name}:</td>`;
+                    tbody.appendChild(tr);
+                });
+                return;
+            }
+
+            // Split pad in fs en remote pad
+            let fs = fullPath;
+            let remotePath = "";
+            const colonIdx = fullPath.indexOf(':');
+            if (colonIdx !== -1) {
+                fs = fullPath.substring(0, colonIdx + 1);
+                remotePath = fullPath.substring(colonIdx + 1);
+            }
+
+            const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
+            if (!res || !res.list) {
+                tbody.innerHTML = '<tr><td colspan="2" class="p-8 text-center text-red-400 italic">Kon map niet laden.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            
+            // "Terug" knop
+            if (remotePath && remotePath !== "/" && remotePath !== "\\") {
+                const parts = remotePath.replace(/[\\\/]$/, '').split(/[\\\/]/);
+                parts.pop();
+                const parentPath = parts.join('/');
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 cursor-pointer text-gray-400";
+                tr.onclick = () => browseSelectorPath(fs + parentPath);
+                tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-folder-open"></i></td><td class="p-3">.. (Vorige map)</td>`;
+                tbody.appendChild(tr);
+            }
+
+            res.list.filter(item => item.IsDir).forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer text-blue-200 border-b border-darkborder/50";
+                tr.onclick = () => browseSelectorPath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                tr.innerHTML = `
+                    <td class="p-3 text-center text-yellow-500"><i class="fa-solid fa-folder"></i></td>
+                    <td class="p-3 font-medium">${item.Name}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function confirmPathSelection() {
+            const selectedPath = document.getElementById('selectorPath').value;
+            if (targetInputId) {
+                document.getElementById(targetInputId).value = selectedPath;
+            }
+            closePathSelector();
+        }
+
         // --- ACTIONS ---
         async function startJob(jobId) {
             const job = jobs.find(j => j.id === jobId);
             if (!job) return;
 
             const uiStatus = document.getElementById('statStatus');
-            uiStatus.innerText = "Bezig met starten...";
-            uiStatus.className = "text-xl font-bold mt-1 text-yellow-400";
+            if (uiStatus) {
+                uiStatus.innerText = "Bezig met starten...";
+                uiStatus.className = "text-xl font-bold mt-1 text-yellow-400";
+            }
 
             if (job.type === 'mount') {
                 const res = await rcloneRequest('mount/mount', { fs: job.source, mountPoint: job.dest });
                 if (res) {
-                    uiStatus.innerText = "Gemount";
-                    uiStatus.className = "text-xl font-bold mt-1 text-green-400";
+                    if (uiStatus) {
+                        uiStatus.innerText = "Gemount";
+                        uiStatus.className = "text-xl font-bold mt-1 text-green-400";
+                    }
                     addLog(jobId, { status: 'Succes', date: new Date().toLocaleString(), duration: 'Permanent' });
                 } else {
-                    uiStatus.innerText = "Fout bij mounten";
-                    uiStatus.className = "text-xl font-bold mt-1 text-red-400";
+                    if (uiStatus) {
+                        uiStatus.innerText = "Fout bij mounten";
+                        uiStatus.className = "text-xl font-bold mt-1 text-red-400";
+                    }
                 }
                 return;
             }
@@ -422,8 +803,10 @@
                 monitorJob(jobId, res.jobid);
             } else {
                 alert("Kon job niet starten. Controleer rclone verbinding.");
-                uiStatus.innerText = "Fout";
-                uiStatus.className = "text-xl font-bold mt-1 text-red-400";
+                if (uiStatus) {
+                    uiStatus.innerText = "Fout";
+                    uiStatus.className = "text-xl font-bold mt-1 text-red-400";
+                }
             }
         }
 
@@ -434,10 +817,15 @@
                 const statsRes = await rcloneRequest('core/stats'); 
                 
                 if (activeJobId === internalJobId && statsRes) {
-                    document.getElementById('statBytes').innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
-                    document.getElementById('statSpeed').innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
-                    document.getElementById('statFiles').innerText = statsRes.transfers;
-                    document.getElementById('statStatus').innerText = "In uitvoering...";
+                    const uiBytes = document.getElementById('statBytes');
+                    const uiSpeed = document.getElementById('statSpeed');
+                    const uiFiles = document.getElementById('statFiles');
+                    const uiStatus = document.getElementById('statStatus');
+
+                    if (uiBytes) uiBytes.innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
+                    if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
+                    if (uiFiles) uiFiles.innerText = statsRes.transfers;
+                    if (uiStatus) uiStatus.innerText = "In uitvoering...";
                 }
 
                 if (statusRes && statusRes.finished) {
@@ -453,8 +841,10 @@
                     
                     if (activeJobId === internalJobId) {
                         const uiStatus = document.getElementById('statStatus');
-                        uiStatus.innerText = success ? "Voltooid" : "Mislukt";
-                        uiStatus.className = success ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+                        if (uiStatus) {
+                            uiStatus.innerText = success ? "Voltooid" : "Mislukt";
+                            uiStatus.className = success ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+                        }
                         renderHistory(jobs.find(j => j.id === internalJobId));
                     }
                 }
@@ -486,6 +876,7 @@
             document.getElementById('jobForm').reset();
             document.getElementById('editJobId').value = '';
             document.getElementById('modalTitle').innerText = "Nieuwe Taak Configureren";
+            document.getElementById('btnDeleteInModal').classList.add('hidden');
             document.getElementById('jobModal').classList.remove('hidden');
         }
 
@@ -498,7 +889,16 @@
             document.getElementById('jobSource').value = job.source;
             document.getElementById('jobDest').value = job.dest;
             document.getElementById('modalTitle').innerText = "Taak Bewerken";
+            document.getElementById('btnDeleteInModal').classList.remove('hidden');
             document.getElementById('jobModal').classList.remove('hidden');
+        }
+
+        function deleteJobFromModal() {
+            const id = document.getElementById('editJobId').value;
+            if (id) {
+                deleteJob(id);
+                closeJobModal();
+            }
         }
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
