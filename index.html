@@ -196,11 +196,21 @@
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Source (Remote:Pad of Lokaal Pad)</label>
-                    <input type="text" id="jobSource" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="C:\MijnData of drive:Backups" required>
+                    <div class="flex gap-2">
+                        <input type="text" id="jobSource" class="flex-1 bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="C:\MijnData of drive:Backups" required>
+                        <button type="button" onclick="openPathSelector('jobSource')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
+                            <i class="fa-solid fa-folder-tree"></i>
+                        </button>
+                    </div>
                 </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
-                    <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                    <div class="flex gap-2">
+                        <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                        <button type="button" onclick="openPathSelector('jobDest')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
+                            <i class="fa-solid fa-folder-tree"></i>
+                        </button>
+                    </div>
                 </div>
                 
                 <div class="flex justify-end gap-3 pt-4">
@@ -232,6 +242,40 @@
             </div>
             <div class="flex justify-end mt-8">
                 <button onclick="saveConfig()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg">Verbinding Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Path Selector Modal -->
+    <div id="pathSelectorModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-[60] p-4">
+        <div class="bg-darkcard p-6 rounded-2xl w-full max-w-2xl border border-darkborder shadow-2xl flex flex-col h-[80vh]">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-xl font-bold">Pad Selecteren</h3>
+                <button onclick="closePathSelector()" class="text-gray-500 hover:text-white"><i class="fa-solid fa-times"></i></button>
+            </div>
+            
+            <div class="flex gap-2 mb-4">
+                <input type="text" id="selectorPath" class="flex-1 bg-darkbg border border-darkborder rounded p-2 text-sm font-mono" placeholder="Selecteer een remote of pad">
+                <button onclick="browseSelectorPath()" class="bg-rclone px-4 py-2 rounded text-sm font-bold">Open</button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto min-h-0 border border-darkborder rounded-xl bg-darkbg/30">
+                <table class="w-full text-left text-sm">
+                    <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs sticky top-0">
+                        <tr>
+                            <th class="p-3 w-8"></th>
+                            <th class="p-3">Naam</th>
+                        </tr>
+                    </thead>
+                    <tbody id="selectorTableBody" class="divide-y divide-darkborder">
+                        <!-- Remotes/Folders will be rendered here -->
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="flex justify-end gap-3 pt-6">
+                <button onclick="closePathSelector()" class="px-6 py-2 text-gray-400 hover:text-white transition">Annuleren</button>
+                <button onclick="confirmPathSelection()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-2 rounded-lg font-bold shadow-lg transition">Selecteer Huidig Pad</button>
             </div>
         </div>
     </div>
@@ -555,6 +599,92 @@
                 `;
                 tbody.appendChild(tr);
             });
+        }
+
+        let targetInputId = null;
+
+        async function openPathSelector(inputId) {
+            targetInputId = inputId;
+            document.getElementById('selectorPath').value = document.getElementById(inputId).value;
+            document.getElementById('pathSelectorModal').classList.remove('hidden');
+            await browseSelectorPath();
+        }
+
+        function closePathSelector() {
+            document.getElementById('pathSelectorModal').classList.add('hidden');
+        }
+
+        async function browseSelectorPath(path) {
+            if (path !== undefined) document.getElementById('selectorPath').value = path;
+            const fullPath = document.getElementById('selectorPath').value;
+            const tbody = document.getElementById('selectorTableBody');
+            tbody.innerHTML = '<tr><td colspan="2" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Laden...</td></tr>';
+
+            if (!fullPath) {
+                // Toon remotes als er geen pad is
+                const res = await rcloneRequest('config/dump');
+                if (!res) {
+                    tbody.innerHTML = '<tr><td colspan="2" class="p-8 text-center text-red-400">Kon remotes niet laden.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = '';
+                Object.keys(res).forEach(name => {
+                    const tr = document.createElement('tr');
+                    tr.className = "hover:bg-darkborder/30 cursor-pointer text-blue-200";
+                    tr.onclick = () => browseSelectorPath(name + ':');
+                    tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-database text-purple-400"></i></td><td class="p-3">${name}:</td>`;
+                    tbody.appendChild(tr);
+                });
+                return;
+            }
+
+            // Split pad in fs en remote pad
+            let fs = fullPath;
+            let remotePath = "";
+            const colonIdx = fullPath.indexOf(':');
+            if (colonIdx !== -1) {
+                fs = fullPath.substring(0, colonIdx + 1);
+                remotePath = fullPath.substring(colonIdx + 1);
+            }
+
+            const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
+            if (!res || !res.list) {
+                tbody.innerHTML = '<tr><td colspan="2" class="p-8 text-center text-red-400 italic">Kon map niet laden.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            
+            // "Terug" knop
+            if (remotePath && remotePath !== "/" && remotePath !== "\\") {
+                const parts = remotePath.replace(/[\\\/]$/, '').split(/[\\\/]/);
+                parts.pop();
+                const parentPath = parts.join('/');
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 cursor-pointer text-gray-400";
+                tr.onclick = () => browseSelectorPath(fs + parentPath);
+                tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-folder-open"></i></td><td class="p-3">.. (Vorige map)</td>`;
+                tbody.appendChild(tr);
+            }
+
+            res.list.filter(item => item.IsDir).forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer text-blue-200 border-b border-darkborder/50";
+                tr.onclick = () => browseSelectorPath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                tr.innerHTML = `
+                    <td class="p-3 text-center text-yellow-500"><i class="fa-solid fa-folder"></i></td>
+                    <td class="p-3 font-medium">${item.Name}</td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function confirmPathSelection() {
+            const selectedPath = document.getElementById('selectorPath').value;
+            if (targetInputId) {
+                document.getElementById(targetInputId).value = selectedPath;
+            }
+            closePathSelector();
         }
 
         // --- ACTIONS ---
