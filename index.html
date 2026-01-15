@@ -119,19 +119,46 @@
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
                             <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Status</div>
                             <div id="statStatus" class="text-xl font-bold mt-1">-</div>
+                            <div id="statTime" class="text-[10px] text-gray-500 mt-1">0s</div>
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
                             <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Overgedragen</div>
                             <div id="statBytes" class="text-xl font-bold mt-1 text-blue-400">0 MB</div>
+                            <div id="statTotalBytes" class="text-[10px] text-gray-500 mt-1">van ?</div>
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
                             <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Bestanden (Gep/Ove)</div>
                             <div id="statFiles" class="text-xl font-bold mt-1 text-green-400">0 / 0</div>
                             <div id="statSkipped" class="text-[10px] text-gray-500 mt-1">0 overgeslagen</div>
+                            <div id="statErrors" class="text-[10px] text-red-500 mt-0.5">0 errors</div>
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
-                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Snelheid</div>
+                            <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Snelheid / ETA</div>
                             <div id="statSpeed" class="text-xl font-bold mt-1 text-yellow-400">-</div>
+                            <div id="statEta" class="text-[10px] text-gray-500 mt-1">ETA: -</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Active Transfers -->
+                    <div id="activeTransfersSection" class="hidden">
+                         <h4 class="text-lg font-semibold flex items-center gap-2 mb-3">
+                            <i class="fa-solid fa-arrow-right-arrow-left text-gray-500"></i> Actieve Overdrachten
+                        </h4>
+                        <div class="bg-darkcard rounded-xl border border-darkborder overflow-hidden">
+                             <table class="w-full text-left text-sm">
+                                <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
+                                    <tr>
+                                        <th class="p-3 w-1/2">Bestand</th>
+                                        <th class="p-3 text-right">Grootte</th>
+                                        <th class="p-3 text-right">Snelheid</th>
+                                        <th class="p-3 text-right">ETA</th>
+                                        <th class="p-3 w-1/5">Progress</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="transferTableBody" class="divide-y divide-darkborder">
+                                    <!-- Transfers rendered here -->
+                                </tbody>
+                             </table>
                         </div>
                     </div>
 
@@ -654,8 +681,14 @@
             document.getElementById('statStatus').innerText = "Gereed";
             document.getElementById('statStatus').className = "text-xl font-bold mt-1 text-gray-400";
             document.getElementById('statBytes').innerText = "0 MB";
+            document.getElementById('statTotalBytes').innerText = "";
             document.getElementById('statFiles').innerText = "0";
             document.getElementById('statSpeed').innerText = "-";
+            document.getElementById('statTime').innerText = "0s";
+            document.getElementById('statErrors').innerText = "";
+            document.getElementById('statEta').innerText = "ETA: -";
+            document.getElementById('activeTransfersSection').classList.add('hidden');
+            document.getElementById('transferTableBody').innerHTML = '';
 
             renderHistory(job);
         }
@@ -692,6 +725,10 @@
             const uiFiles = document.getElementById('statFiles');
             const uiSkipped = document.getElementById('statSkipped');
             const uiSpeed = document.getElementById('statSpeed');
+            const uiTime = document.getElementById('statTime');
+            const uiErrors = document.getElementById('statErrors');
+            const uiTotalBytes = document.getElementById('statTotalBytes');
+            const uiEta = document.getElementById('statEta');
 
             if (uiStatus) {
                 uiStatus.innerText = log.status;
@@ -701,6 +738,9 @@
             if (uiFiles) uiFiles.innerText = log.files || '-';
             if (uiSkipped) uiSkipped.innerText = log.skipped ? `${log.skipped} overgeslagen` : '-';
             if (uiSpeed) uiSpeed.innerText = log.speed || '-';
+            if (uiTime) uiTime.innerText = log.duration || '-';
+            if (uiErrors) uiErrors.innerText = log.errors ? `${log.errors} errors` : '0 errors';
+            if (uiEta) uiEta.innerText = "ETA: -";
         }
 
         let targetInputId = null;
@@ -851,12 +891,57 @@
                     const uiFiles = document.getElementById('statFiles');
                     const uiSkipped = document.getElementById('statSkipped');
                     const uiStatus = document.getElementById('statStatus');
+                    const uiTime = document.getElementById('statTime');
+                    const uiTotalBytes = document.getElementById('statTotalBytes');
+                    const uiErrors = document.getElementById('statErrors');
+                    const uiEta = document.getElementById('statEta');
+                    const transferTable = document.getElementById('transferTableBody');
+                    const activeTransfersSection = document.getElementById('activeTransfersSection');
 
                     if (uiBytes) uiBytes.innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
                     if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
                     if (uiFiles) uiFiles.innerText = `${statsRes.transfers} / ${statsRes.checks}`;
                     if (uiSkipped) uiSkipped.innerText = `${statsRes.deletes + (statsRes.checks - statsRes.transfers)} overgeslagen`;
                     if (uiStatus) uiStatus.innerText = "In uitvoering...";
+                    
+                    if (uiTime) uiTime.innerText = statsRes.elapsedTime.toFixed(0) + "s";
+                    if (uiErrors) {
+                        uiErrors.innerText = statsRes.errors + " errors";
+                        uiErrors.className = statsRes.errors > 0 ? "text-[10px] text-red-500 mt-0.5 font-bold" : "text-[10px] text-gray-500 mt-0.5";
+                    }
+                    if (uiTotalBytes) uiTotalBytes.innerText = statsRes.totalBytes ? "van " + (statsRes.totalBytes / 1024 / 1024).toFixed(2) + " MB" : "";
+                    if (uiEta) uiEta.innerText = statsRes.eta ? "ETA: " + statsRes.eta.toFixed(0) + "s" : "ETA: -";
+
+                    // Handle Active Transfers
+                    if (statsRes.transferring && statsRes.transferring.length > 0) {
+                        activeTransfersSection.classList.remove('hidden');
+                        transferTable.innerHTML = '';
+                        statsRes.transferring.forEach(t => {
+                            const tr = document.createElement('tr');
+                            tr.className = "border-b border-darkborder/30 last:border-0";
+                            const perc = t.percentage || 0;
+                            const sizeMb = (t.size / 1024 / 1024).toFixed(2);
+                            const speedMb = (t.speedAvg / 1024 / 1024).toFixed(2);
+                            
+                            tr.innerHTML = `
+                                <td class="p-3">
+                                    <div class="truncate w-48 text-gray-300" title="${t.name}">${t.name}</div>
+                                </td>
+                                <td class="p-3 text-right font-mono text-xs text-gray-400">${sizeMb} MB</td>
+                                <td class="p-3 text-right font-mono text-xs text-yellow-500">${speedMb} MB/s</td>
+                                <td class="p-3 text-right font-mono text-xs text-blue-300">${t.eta || '-'}s</td>
+                                <td class="p-3 align-middle">
+                                    <div class="w-full bg-darkbg rounded-full h-1.5">
+                                        <div class="bg-blue-500 h-1.5 rounded-full" style="width: ${perc}%"></div>
+                                    </div>
+                                    <div class="text-[10px] text-right mt-1 text-gray-500">${perc}%</div>
+                                </td>
+                            `;
+                            transferTable.appendChild(tr);
+                        });
+                    } else {
+                        activeTransfersSection.classList.add('hidden');
+                    }
                 }
 
                 if (statusRes && statusRes.finished) {
@@ -869,12 +954,16 @@
                         size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?',
                         speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
                         files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
-                        skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0
+                        skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0,
+                        errors: statsRes ? statsRes.errors : 0
                     };
                     addLog(internalJobId, log);
                     
                     if (activeJobId === internalJobId) {
                         const uiStatus = document.getElementById('statStatus');
+                        const activeTransfersSection = document.getElementById('activeTransfersSection');
+                        if (activeTransfersSection) activeTransfersSection.classList.add('hidden');
+
                         if (uiStatus) {
                             uiStatus.innerText = success ? "Voltooid" : "Mislukt";
                             uiStatus.className = success ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
