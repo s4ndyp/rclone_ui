@@ -818,6 +818,9 @@
             }
 
             // Backup Job
+            // Reset stats first to ensure clean monitoring for the new job
+            await rcloneRequest('core/stats-reset');
+
             const res = await rcloneRequest('sync/copy', { 
                 srcFs: job.source, 
                 dstFs: job.dest, 
