@@ -56,6 +56,12 @@ def save_jobs(jobs):
 
 def run_backup(job):
     print(f"[{datetime.now()}] Starting Backup: {job['name']}")
+
+    # Reset stats so that core/stats only reflects the current backup
+    # This fulfills the requirement of "activating" stats only for the new start
+    print(f"[{datetime.now()}] Resetting rclone stats...")
+    rclone_rc_call("core/stats-reset")
+
     # Using sync/copy as it's safer than sync/sync for backups
     params = {
         "srcFs": job['source'],
