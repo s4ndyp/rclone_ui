@@ -100,7 +100,28 @@
                 </div>
 
                 <div id="browserView" class="hidden flex-1 flex flex-col overflow-hidden">
-                    <!-- ... browser view content ... -->
+                    <div class="p-4 border-b border-darkborder bg-darkcard/30 flex gap-2 items-center">
+                        <input type="text" id="browserPath" class="flex-1 bg-darkbg border border-darkborder rounded p-2 text-sm font-mono" placeholder="remote:pad/naar/map">
+                        <button onclick="browsePath()" class="bg-rclone px-4 py-2 rounded text-sm font-bold">Open</button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <div id="browserBreadcrumbs" class="flex gap-2 text-xs text-gray-500 mb-4 px-2"></div>
+                        <div class="bg-darkcard rounded-xl border border-darkborder overflow-hidden">
+                            <table class="w-full text-left text-sm">
+                                <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
+                                    <tr>
+                                        <th class="p-3 w-8"></th>
+                                        <th class="p-3">Naam</th>
+                                        <th class="p-3 text-right">Grootte</th>
+                                        <th class="p-3 text-right">Datum</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="browserTableBody" class="divide-y divide-darkborder">
+                                    <!-- Files will be rendered here -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="remotesView" class="hidden p-8 space-y-6">
@@ -323,6 +344,71 @@
                 document.getElementById('remotesView').classList.remove('hidden');
                 loadRemotes();
             }
+        }
+
+        async function browsePath(path) {
+            if (path !== undefined) document.getElementById('browserPath').value = path;
+            const fullPath = document.getElementById('browserPath').value;
+            if (!fullPath) return;
+
+            // Zorg dat we in de juiste sectie zijn
+            if (activeSection !== 'browser') showSection('browser');
+
+            const tbody = document.getElementById('browserTableBody');
+            tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Laden...</td></tr>';
+
+            // Split pad in fs en remote pad
+            let fs = fullPath;
+            let remotePath = "";
+            const colonIdx = fullPath.indexOf(':');
+            if (colonIdx !== -1) {
+                fs = fullPath.substring(0, colonIdx + 1);
+                remotePath = fullPath.substring(colonIdx + 1);
+            }
+
+            const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
+            if (!res || !res.list) {
+                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-red-400 italic">Kon map niet laden. Controleer het pad.</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            
+            // "Terug" knop als we niet in de root zijn
+            if (remotePath && remotePath !== "/" && remotePath !== "\\") {
+                const parts = remotePath.replace(/[\\\/]$/, '').split(/[\\\/]/);
+                parts.pop();
+                const parentPath = parts.join('/');
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 cursor-pointer text-gray-400";
+                tr.onclick = () => browsePath(fs + parentPath);
+                tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-folder-open"></i></td><td class="p-3">.. (Vorige map)</td><td></td><td></td>`;
+                tbody.appendChild(tr);
+            }
+
+            res.list.forEach(item => {
+                const tr = document.createElement('tr');
+                tr.className = "hover:bg-darkborder/30 transition border-b border-darkborder/50";
+                const isDir = item.IsDir;
+                
+                if (isDir) {
+                    tr.classList.add('cursor-pointer', 'text-blue-200');
+                    tr.onclick = () => browsePath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                }
+
+                const size = isDir ? '-' : (item.Size / 1024 / 1024).toFixed(2) + ' MB';
+                const date = new Date(item.ModTime).toLocaleDateString();
+
+                tr.innerHTML = `
+                    <td class="p-3 text-center text-gray-500">
+                        <i class="fa-solid ${isDir ? 'fa-folder text-yellow-500' : 'fa-file-lines text-blue-400'}"></i>
+                    </td>
+                    <td class="p-3 font-medium">${item.Name}</td>
+                    <td class="p-3 text-right text-gray-500 font-mono">${size}</td>
+                    <td class="p-3 text-right text-gray-400">${date}</td>
+                `;
+                tbody.appendChild(tr);
+            });
         }
 
         async function loadRemotes() {
