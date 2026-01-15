@@ -213,9 +213,14 @@
                     </div>
                 </div>
                 
-                <div class="flex justify-end gap-3 pt-4">
-                    <button type="button" onclick="closeJobModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
-                    <button type="submit" class="bg-rclone hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Opslaan</button>
+                <div class="flex justify-between items-center pt-4">
+                    <button type="button" id="btnDeleteInModal" onclick="deleteJobFromModal()" class="hidden bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-3 rounded-lg font-bold border border-red-800/50 transition">
+                        <i class="fa-solid fa-trash mr-2"></i> Verwijderen
+                    </button>
+                    <div class="flex gap-3 ml-auto">
+                        <button type="button" onclick="closeJobModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
+                        <button type="submit" class="bg-rclone hover:bg-blue-600 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Opslaan</button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -537,14 +542,27 @@
 
             filteredJobs.forEach(job => {
                 const div = document.createElement('div');
-                div.className = `p-4 rounded-xl cursor-pointer border transition ${activeJobId === job.id ? 'bg-darkcard border-rclone shadow-lg shadow-rclone/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
-                div.onclick = () => selectJob(job.id);
+                div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-2 ${activeJobId === job.id ? 'bg-darkcard border-rclone shadow-lg shadow-rclone/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
+                div.onclick = (e) => {
+                    // Alleen selecteren als er niet op een knop is geklikt
+                    if (!e.target.closest('button')) selectJob(job.id);
+                };
                 div.innerHTML = `
-                    <div class="flex justify-between items-start mb-1">
-                        <div class="font-bold text-white">${job.name}</div>
-                        ${job.schedule ? '<i class="fa-solid fa-clock text-[10px] text-blue-400"></i>' : ''}
+                    <div class="flex justify-between items-start">
+                        <div class="min-w-0 flex-1">
+                            <div class="font-bold text-white truncate">${job.name}</div>
+                            <div class="text-[10px] text-gray-500 truncate mt-0.5">${job.source}</div>
+                        </div>
+                        ${job.schedule ? '<i class="fa-solid fa-clock text-[10px] text-blue-400 mt-1 ml-2"></i>' : ''}
                     </div>
-                    <div class="text-xs text-gray-500 truncate">${job.source}</div>
+                    <div class="flex gap-2 mt-1">
+                        <button onclick="startJob('${job.id}')" class="flex-1 bg-green-900/40 hover:bg-green-600 text-green-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-green-800/30">
+                            <i class="fa-solid fa-play text-[8px]"></i> START
+                        </button>
+                        <button onclick="editJob('${job.id}')" class="flex-1 bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30">
+                            <i class="fa-solid fa-edit text-[8px]"></i> EDIT
+                        </button>
+                    </div>
                 `;
                 list.appendChild(div);
             });
@@ -785,6 +803,7 @@
             document.getElementById('jobForm').reset();
             document.getElementById('editJobId').value = '';
             document.getElementById('modalTitle').innerText = "Nieuwe Taak Configureren";
+            document.getElementById('btnDeleteInModal').classList.add('hidden');
             document.getElementById('jobModal').classList.remove('hidden');
         }
 
@@ -797,7 +816,16 @@
             document.getElementById('jobSource').value = job.source;
             document.getElementById('jobDest').value = job.dest;
             document.getElementById('modalTitle').innerText = "Taak Bewerken";
+            document.getElementById('btnDeleteInModal').classList.remove('hidden');
             document.getElementById('jobModal').classList.remove('hidden');
+        }
+
+        function deleteJobFromModal() {
+            const id = document.getElementById('editJobId').value;
+            if (id) {
+                deleteJob(id);
+                closeJobModal();
+            }
         }
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
