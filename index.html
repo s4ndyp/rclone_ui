@@ -596,6 +596,19 @@
             return null;
         }
 
+        async function handleUpdateRemoteStats(event, btn, name) {
+            event.stopPropagation();
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+            try {
+                await updateRemoteStats(name);
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
+            }
+        }
+
         async function saveJobToMongo(job) {
             try {
                 // Ensure the job has an _id if it already exists remotely (mapped from internal job)
@@ -1025,7 +1038,7 @@
                         </div>
 
                         <div class="flex gap-2">
-                             <button onclick="event.stopPropagation(); this.innerHTML='<i class=\'fa-solid fa-spinner fa-spin\'></i>'; updateRemoteStats('${name}')" 
+                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')" 
                                      class="flex-1 bg-blue-900/30 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30 uppercase">
                                 <i class="fa-solid fa-calculator"></i> BEREKEN
                             </button>
