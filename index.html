@@ -255,20 +255,13 @@
                         </div>
 
                         <!-- Gekoppelde Taken met individuele Charts -->
-                        <div class="space-y-6">
-                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
-                                 <h4 class="font-bold text-white mb-4 flex items-center gap-2">
-                                     <i class="fa-solid fa-tasks text-blue-400"></i> Gekoppelde Taken
-                                 </h4>
-                                 <div id="remoteLinkedJobsWithCharts" class="space-y-6">
-                                     <!-- Linked jobs with charts rendered here -->
-                                 </div>
-                            </div>
-
-                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
-                                 <h4 class="font-bold text-white mb-4">Configuratie</h4>
-                                 <pre id="remoteConfigDump" class="text-[10px] text-gray-400 font-mono bg-darkbg p-4 rounded overflow-x-auto max-h-48"></pre>
-                            </div>
+                        <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                             <h4 class="font-bold text-white mb-4 flex items-center gap-2">
+                                 <i class="fa-solid fa-tasks text-blue-400"></i> Gekoppelde Taken
+                             </h4>
+                             <div id="remoteLinkedJobsWithCharts" class="space-y-6">
+                                 <!-- Linked jobs with charts rendered here -->
+                             </div>
                         </div>
                     </div>
                 </div>
@@ -803,7 +796,6 @@
             }
         }
 
-        let remoteChart = null;
 
         async function selectRemote(name) {
             activeRemoteName = name;
@@ -815,7 +807,6 @@
             const remoteConfig = configuredRemotes[name];
             document.getElementById('remoteDetailTitle').innerText = name;
             document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
-            document.getElementById('remoteConfigDump').innerText = JSON.stringify(remoteConfig, null, 2);
 
             // Render linked jobs with individual charts
             const linkedJobsEl = document.getElementById('remoteLinkedJobsWithCharts');
@@ -868,9 +859,6 @@
                 browsePath(name + ':');
             };
             document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
-
-            // Fetch History for Chart (90 days)
-            renderRemoteHistoryChart(name);
         }
 
         let jobCharts = {}; // Store individual job charts
@@ -977,103 +965,6 @@
             }
         }
 
-        async function renderRemoteHistoryChart(name) {
-            try {
-                // Fetch all stats for this remote
-                const allStats = await manager.getSmartCollection('remstats');
-                const history = allStats
-                    .filter(s => s.remote === name)
-                    .sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                // Filter last 90 days
-                const ninetyDaysAgo = new Date();
-                ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
-                const filteredHistory = history.filter(s => new Date(s.date) >= ninetyDaysAgo);
-
-                const labels = filteredHistory.map(s => s.date);
-                const sizeData = filteredHistory.map(s => {
-                    const gb = s.size / 1024 / 1024 / 1024;
-                    return gb >= 1000 ? (gb / 1024) : gb;
-                });
-                const countData = filteredHistory.map(s => s.count);
-
-                if (remoteChart) remoteChart.destroy();
-
-                const ctx = document.getElementById('remoteHistoryChart').getContext('2d');
-                remoteChart = new Chart(ctx, {
-                    type: 'bar',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: 'Grootte',
-                                data: sizeData,
-                                backgroundColor: 'rgba(59, 130, 246, 0.4)',
-                                borderColor: 'rgba(59, 130, 246, 1)',
-                                borderWidth: 1,
-                                borderRadius: 4,
-                                order: 2
-                            },
-                            {
-                                label: 'Bestanden',
-                                data: countData,
-                                type: 'line',
-                                borderColor: 'rgba(74, 222, 128, 1)',
-                                backgroundColor: 'rgba(74, 222, 128, 0.1)',
-                                borderWith: 2,
-                                tension: 0.4,
-                                fill: false,
-                                yAxisID: 'y1',
-                                order: 1
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        if (context.datasetIndex === 0) {
-                                            const value = context.parsed.y;
-                                            return value >= 1000 ? (value / 1000).toFixed(2) + ' TB' : value.toFixed(2) + ' GB';
-                                        }
-                                        return context.parsed.y + ' bestanden';
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            x: {
-                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10 } }
-                            },
-                            y: {
-                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                ticks: {
-                                    color: 'rgba(255, 255, 255, 0.5)',
-                                    font: { size: 10 },
-                                    callback: function(value) {
-                                        return value >= 1000 ? (value / 1000).toFixed(1) + 'TB' : value.toFixed(1) + 'GB';
-                                    }
-                                },
-                                title: { display: true, text: 'Grootte (GB/TB)', color: 'rgba(255, 255, 255, 0.3)', font: { size: 10 } }
-                            },
-                            y1: {
-                                position: 'right',
-                                grid: { drawOnChartArea: false },
-                                ticks: { color: 'rgba(74, 222, 128, 0.5)', font: { size: 10 } },
-                                title: { display: true, text: 'Aantal Bestanden', color: 'rgba(74, 222, 128, 0.3)', font: { size: 10 } }
-                            }
-                        }
-                    }
-                });
-            } catch (e) {
-                console.error("Failed to render chart:", e);
-            }
-        }
 
         function openAddRemoteModal() { document.getElementById('remoteModal').classList.remove('hidden'); }
         function closeRemoteModal() { document.getElementById('remoteModal').classList.add('hidden'); }
