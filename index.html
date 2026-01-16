@@ -272,8 +272,9 @@
     <!-- Remote Modal -->
     <div id="remoteModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
         <div class="bg-darkcard p-8 rounded-2xl w-full max-w-lg border border-darkborder shadow-2xl">
-            <h3 class="text-2xl font-bold mb-6">Nieuwe SMB/CIFS Remote</h3>
+            <h3 id="remoteModalTitle" class="text-2xl font-bold mb-6">Nieuwe SMB/CIFS Remote</h3>
             <form id="remoteForm" class="space-y-4">
+                <input type="hidden" id="editRemoteName" value="">
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Naam (bijv. nas_source)</label>
                     <input type="text" id="remoteName" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-purple-500 outline-none" placeholder="nas_share" required>
@@ -1282,8 +1283,37 @@
         }
 
 
-        function openAddRemoteModal() { document.getElementById('remoteModal').classList.remove('hidden'); }
-        function closeRemoteModal() { document.getElementById('remoteModal').classList.add('hidden'); }
+        function openAddRemoteModal() {
+            document.getElementById('remoteForm').reset();
+            document.getElementById('remoteName').readOnly = false;
+            document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
+            document.getElementById('remoteModalTitle').innerText = 'Nieuwe SMB/CIFS Remote';
+            document.getElementById('editRemoteName').value = '';
+            document.getElementById('remoteModal').classList.remove('hidden');
+        }
+
+        function editRemote(name) {
+            const config = configuredRemotes[name];
+            if (!config) return;
+
+            document.getElementById('remoteName').value = name;
+            document.getElementById('remoteName').readOnly = true;
+            document.getElementById('remoteName').classList.add('bg-gray-800', 'cursor-not-allowed');
+            document.getElementById('remoteHost').value = config.parameters?.host || '';
+            document.getElementById('remoteUser').value = config.parameters?.user || '';
+            document.getElementById('remotePass').value = config.parameters?.pass || '';
+
+            document.getElementById('remoteModalTitle').innerText = `Remote "${name}" Bewerken`;
+            document.getElementById('editRemoteName').value = name;
+            document.getElementById('remoteModal').classList.remove('hidden');
+        }
+
+        function closeRemoteModal() {
+            document.getElementById('remoteModal').classList.add('hidden');
+            // Reset readonly state
+            document.getElementById('remoteName').readOnly = false;
+            document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
+        }
 
         document.getElementById('remoteForm').onsubmit = async (e) => {
             e.preventDefault();
@@ -1291,6 +1321,7 @@
             const host = document.getElementById('remoteHost').value;
             const user = document.getElementById('remoteUser').value;
             const pass = document.getElementById('remotePass').value;
+            const editName = document.getElementById('editRemoteName').value;
 
             // Rclone config/create expects 'parameters' for the specific type
             const params = {
@@ -1303,13 +1334,42 @@
                 }
             };
 
-            const res = await rcloneRequest('config/create', params);
-            if (res) {
-                alert('Remote succesvol aangemaakt!');
-                closeRemoteModal();
-                loadRemotes();
-            } else {
-                alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
+            try {
+                if (editName && editName !== name) {
+                    // Naam is gewijzigd - eerst oude verwijderen, dan nieuwe aanmaken
+                    await rcloneRequest('config/delete', { name: editName });
+                    const res = await rcloneRequest('config/create', params);
+                    if (res) {
+                        alert('Remote succesvol bijgewerkt!');
+                        closeRemoteModal();
+                        loadRemotes();
+                    } else {
+                        alert('Fout bij het bijwerken van de remote. Controleer de gegevens.');
+                    }
+                } else if (editName) {
+                    // Alleen parameters wijzigen - eerst verwijderen, dan opnieuw aanmaken
+                    await rcloneRequest('config/delete', { name: editName });
+                    const res = await rcloneRequest('config/create', params);
+                    if (res) {
+                        alert('Remote succesvol bijgewerkt!');
+                        closeRemoteModal();
+                        loadRemotes();
+                    } else {
+                        alert('Fout bij het bijwerken van de remote. Controleer de gegevens.');
+                    }
+                } else {
+                    // Nieuwe remote aanmaken
+                    const res = await rcloneRequest('config/create', params);
+                    if (res) {
+                        alert('Remote succesvol aangemaakt!');
+                        closeRemoteModal();
+                        loadRemotes();
+                    } else {
+                        alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
+                    }
+                }
+            } catch (error) {
+                alert('Fout bij het opslaan van de remote: ' + error.message);
             }
         };
 
@@ -1361,7 +1421,11 @@
                         ${host ? `<div class="text-lg font-mono text-cyan-400 truncate font-bold">${host}</div>` : '<div class="text-sm text-gray-500 italic">Geen IP adres</div>'}
 
                         <div class="flex gap-2">
-                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')" 
+                             <button onclick="event.stopPropagation(); editRemote('${name}')"
+                                     class="bg-orange-900/30 hover:bg-orange-600 text-orange-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-orange-800/30 uppercase">
+                                <i class="fa-solid fa-edit"></i> WIJZIG
+                            </button>
+                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')"
                                      class="flex-1 bg-blue-900/30 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30 uppercase">
                                 <i class="fa-solid fa-calculator"></i> BEREKEN
                             </button>
