@@ -831,46 +831,81 @@
 
             // Find max speed for scaling
             const maxSpeed = Math.max(...samples.map(s => s.s));
-            if (maxSpeed === 0) {
-                container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Geen activiteit gemeten</div>';
-                return;
-            }
+            const displayMax = maxSpeed > 0 ? maxSpeed : 1; 
 
             container.innerHTML = '';
             
-            // Title
-            const title = document.createElement('div');
-            title.className = "absolute top-2 left-4 text-xs font-bold text-gray-400";
-            title.innerText = "Snelheid (Bytes/s) over tijd";
-            container.appendChild(title);
+            // Helper to format bytes
+            const fmtSpeed = (bytes) => (bytes / 1024 / 1024).toFixed(1) + ' MB/s';
+            const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
 
-            // Chart area
-            const chartArea = document.createElement('div');
-            chartArea.className = "flex items-end h-full w-full gap-1 pt-6 pb-2 px-2";
+            // Wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex h-full w-full text-[10px] text-gray-500";
+
+            // --- Y-Axis ---
+            const yAxis = document.createElement('div');
+            yAxis.className = "flex flex-col justify-between items-end pr-2 pb-6 w-24 shrink-0 font-mono";
+            yAxis.innerHTML = `
+                <div class="relative -top-2">${fmtSpeed(displayMax)}</div>
+                <div class="relative">${fmtSpeed(displayMax / 2)}</div>
+                <div class="relative -bottom-1">0.0 MB/s</div>
+            `;
+            wrapper.appendChild(yAxis);
+
+            // --- Chart Content ---
+            const content = document.createElement('div');
+            content.className = "flex-1 flex flex-col min-w-0";
+
+            // Bars Area
+            const barsArea = document.createElement('div');
+            barsArea.className = "flex-1 flex items-end gap-[1px] border-l border-b border-darkborder relative";
             
-            const barCount = samples.length;
+            // Grid lines
+            const gridLineTop = document.createElement('div');
+            gridLineTop.className = "absolute top-0 w-full border-t border-darkborder/30 border-dashed pointer-events-none"; 
+            barsArea.appendChild(gridLineTop);
             
-            samples.forEach((sample, i) => {
-                const heightPerc = (sample.s / maxSpeed) * 100;
+            const gridLineMid = document.createElement('div');
+            gridLineMid.className = "absolute top-1/2 w-full border-t border-darkborder/30 border-dashed pointer-events-none"; 
+            barsArea.appendChild(gridLineMid);
+
+            samples.forEach((sample) => {
+                const heightPerc = (sample.s / displayMax) * 100;
                 const bar = document.createElement('div');
-                // Use a gradient or solid color
                 bar.className = "flex-1 bg-blue-500/50 hover:bg-blue-400 transition-all rounded-t relative group min-w-[2px]";
                 bar.style.height = `${Math.max(heightPerc, 1)}%`;
                 
                 // Tooltip
-                const humanSpeed = (sample.s / 1024 / 1024).toFixed(2) + " MB/s";
+                const humanSpeed = fmtSpeed(sample.s);
                 const timeStr = new Date(sample.t).toLocaleTimeString();
                 
                 bar.innerHTML = `
-                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 whitespace-nowrap bg-gray-900 text-white text-[10px] py-1 px-2 rounded border border-gray-700 shadow-xl">
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-20 whitespace-nowrap bg-gray-900 text-white text-[10px] py-1 px-2 rounded border border-gray-700 shadow-xl">
                         ${timeStr} - ${humanSpeed}
                     </div>
                 `;
-                
-                chartArea.appendChild(bar);
+                barsArea.appendChild(bar);
             });
+            content.appendChild(barsArea);
 
-            container.appendChild(chartArea);
+            // --- X-Axis ---
+            const xAxis = document.createElement('div');
+            xAxis.className = "flex justify-between pt-1 font-mono h-5 mt-1";
+            
+            const startTime = samples.length > 0 ? fmtTime(samples[0].t) : '';
+            const midTime = samples.length > 1 ? fmtTime(samples[Math.floor(samples.length / 2)].t) : '';
+            const endTime = samples.length > 0 ? fmtTime(samples[samples.length - 1].t) : '';
+
+            xAxis.innerHTML = `
+                <span>${startTime}</span>
+                <span class="hidden sm:inline text-center">${midTime}</span>
+                <span>${endTime}</span>
+            `;
+            content.appendChild(xAxis);
+
+            wrapper.appendChild(content);
+            container.appendChild(wrapper);
         }
 
         // Deprecated/Removed functionality (showHistoryDetails was removing the stats isolation)
