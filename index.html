@@ -1315,7 +1315,7 @@
 
             filteredJobs.forEach(job => {
                 // Calculate last run and next scheduled run
-                const lastRun = getLastRunTime(job);
+                const lastRunInfo = getLastRunInfo(job);
                 const nextRun = getNextScheduledRun(job);
 
                 // Show progress bar for active job or empty state for inactive jobs
@@ -1374,9 +1374,11 @@
                         </div>
                         ${job.schedule ? '<i class="fa-solid fa-clock text-[10px] text-blue-400 mt-1 ml-2"></i>' : ''}
                     </div>
-                    <div class="text-[9px] text-gray-400 mt-1 space-y-0.5">
-                        ${lastRun ? `<div class="flex items-center gap-1"><i class="fa-solid fa-history text-[7px]"></i> Laatste: ${lastRun}</div>` : '<div class="text-gray-600 italic">Nog niet gedraaid</div>'}
-                        ${nextRun ? `<div class="flex items-center gap-1"><i class="fa-solid fa-clock text-[7px]"></i> Volgende: ${nextRun}</div>` : ''}
+                    <div class="text-[11px] mt-1 flex justify-between items-center">
+                        <div class="${lastRunInfo ? (lastRunInfo.status === 'Succes' ? 'text-green-400' : 'text-red-400') : 'text-gray-600 italic'}">
+                            ${lastRunInfo ? `Laatste: ${lastRunInfo.time}` : 'Nog niet gedraaid'}
+                        </div>
+                        ${nextRun ? `<div class="text-yellow-400">Volgende: ${nextRun}</div>` : ''}
                     </div>
                     ${progressHtml}
                     <div class="flex gap-2 mt-1">
@@ -1453,7 +1455,7 @@
             return log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200';
         }
 
-        function getLastRunTime(job) {
+        function getLastRunInfo(job) {
             if (!job.history || job.history.length === 0) return null;
 
             // Sort by date descending and get the most recent
@@ -1467,20 +1469,32 @@
 
             if (!lastRun.date) return null;
 
+            let formattedDate;
             try {
                 const date = parseDateString(lastRun.date);
                 if (!date || isNaN(date.getTime())) {
-                    return lastRun.date; // Fallback to raw date
+                    formattedDate = lastRun.date; // Fallback to raw date
+                } else {
+                    formattedDate = date.toLocaleDateString('nl-NL', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
                 }
-                return date.toLocaleDateString('nl-NL', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                });
             } catch (e) {
-                return lastRun.date; // Fallback to raw date
+                formattedDate = lastRun.date; // Fallback to raw date
             }
+
+            return {
+                time: formattedDate,
+                status: lastRun.status
+            };
+        }
+
+        function getLastRunTime(job) {
+            const info = getLastRunInfo(job);
+            return info ? info.time : null;
         }
 
         function parseDateString(dateStr) {
