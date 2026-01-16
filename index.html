@@ -69,7 +69,13 @@
     <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 bg-darkbg">
         <header class="h-16 border-b border-darkborder bg-darkcard flex items-center justify-between px-8">
-            <h2 id="sectionTitle" class="text-lg font-semibold">Backups</h2>
+            <div class="flex items-center gap-6">
+                <h2 id="sectionTitle" class="text-lg font-semibold">Backups</h2>
+                <div id="systemStats" class="hidden flex gap-4 text-xs font-mono text-gray-500 border-l border-darkborder pl-4">
+                     <span title="Rclone Version"><i class="fa-solid fa-code-branch mr-1"></i> <span id="rcloneVersion">-</span></span>
+                     <span title="Heap Memory"><i class="fa-solid fa-memory mr-1"></i> <span id="rcloneHeap">-</span></span>
+                </div>
+            </div>
             <div class="flex items-center gap-4">
                 <div id="connectionStatus" class="flex items-center gap-2 text-sm text-red-400">
                     <span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken
@@ -104,6 +110,9 @@
                         <div class="flex gap-2">
                             <button id="btnRunNow" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded flex items-center gap-2">
                                 <i class="fa-solid fa-play"></i> Start
+                            </button>
+                             <button id="btnStopJob" class="hidden bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded flex items-center gap-2">
+                                <i class="fa-solid fa-stop"></i> Stop
                             </button>
                             <button id="btnEditJob" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded">
                                 <i class="fa-solid fa-edit"></i>
@@ -164,9 +173,14 @@
 
                     <!-- History -->
                     <div class="space-y-4">
-                        <h4 class="text-lg font-semibold flex items-center gap-2">
-                            <i class="fa-solid fa-history text-gray-500"></i> Geschiedenis
-                        </h4>
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-lg font-semibold flex items-center gap-2">
+                                <i class="fa-solid fa-history text-gray-500"></i> Geschiedenis
+                            </h4>
+                            <button onclick="clearJobHistory()" class="text-xs text-red-400 hover:text-red-300 transition">
+                                <i class="fa-solid fa-trash-can mr-1"></i> Geschiedenis wissen
+                            </button>
+                        </div>
                         <div class="bg-darkcard rounded-xl border border-darkborder overflow-hidden">
                             <table class="w-full text-left text-sm">
                                 <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
@@ -388,6 +402,7 @@
         let activeRcloneJobId = null; // Track if a job is currently running
         let activeSection = 'backups';
         let monitoringInterval = null;
+        let systemStatsInterval = null;
 
         // --- API CORE ---
         async function rcloneRequest(endpoint, body = {}) {
@@ -499,12 +514,47 @@
 
         function updateStatus(connected) {
             const el = document.getElementById('connectionStatus');
+            const statsEl = document.getElementById('systemStats');
+            
             if (connected) {
                 el.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-400"></span> Verbonden';
                 el.className = 'flex items-center gap-2 text-sm text-green-400';
+                statsEl.classList.remove('hidden');
+                startSystemStats();
             } else {
                 el.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken';
                 el.className = 'flex items-center gap-2 text-sm text-red-400';
+                statsEl.classList.add('hidden');
+                stopSystemStats();
+            }
+        }
+
+        function startSystemStats() {
+            if (systemStatsInterval) return;
+            
+            const update = async () => {
+                // Version
+                if (document.getElementById('rcloneVersion').innerText === '-') {
+                    const v = await rcloneRequest('core/version');
+                    if (v) document.getElementById('rcloneVersion').innerText = `v${v.version}`;
+                }
+                
+                // MemStats
+                const m = await rcloneRequest('core/memstats');
+                if (m && m.HeapAlloc) {
+                    const mb = (m.HeapAlloc / 1024 / 1024).toFixed(1);
+                    document.getElementById('rcloneHeap').innerText = `${mb} MB`;
+                }
+            };
+
+            update();
+            systemStatsInterval = setInterval(update, 5000); // Update every 5s
+        }
+
+        function stopSystemStats() {
+            if (systemStatsInterval) {
+                clearInterval(systemStatsInterval);
+                systemStatsInterval = null;
             }
         }
 
@@ -728,8 +778,12 @@
                 'mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400';
 
             document.getElementById('btnRunNow').onclick = () => startJob(id);
+            document.getElementById('btnStopJob').onclick = () => stopJob(id);
             document.getElementById('btnEditJob').onclick = () => editJob(id);
             document.getElementById('btnDeleteJob').onclick = () => deleteJob(id);
+
+            // Reset UI for run/stop
+            updateRunState(activeRcloneJobId && activeJobId === id);
 
             // Reset stats
             document.getElementById('statStatus').innerText = "Gereed";
@@ -1001,6 +1055,20 @@
         }
 
         // --- ACTIONS ---
+        // --- ACTIONS ---
+        function updateRunState(isRunning) {
+             const btnRun = document.getElementById('btnRunNow');
+             const btnStop = document.getElementById('btnStopJob');
+             
+             if (isRunning) {
+                 btnRun.classList.add('hidden');
+                 btnStop.classList.remove('hidden');
+             } else {
+                 btnRun.classList.remove('hidden');
+                 btnStop.classList.add('hidden');
+             }
+        }
+
         async function startJob(jobId) {
             const job = jobs.find(j => j.id === jobId);
             if (!job) return;
@@ -1040,6 +1108,8 @@
             });
             
             if (res && res.jobid) {
+                activeRcloneJobId = res.jobid; // Set global active ID
+                updateRunState(true);
                 monitorJob(jobId, res.jobid);
             } else {
                 alert("Kon job niet starten. Controleer rclone verbinding.");
@@ -1047,6 +1117,15 @@
                     uiStatus.innerText = "Fout";
                     uiStatus.className = "text-xl font-bold mt-1 text-red-400";
                 }
+            }
+        }
+
+        async function stopJob(jobId) {
+            if (!activeRcloneJobId) return;
+            
+            if(confirm("Weet je zeker dat je de taak wilt stoppen?")) {
+                 await rcloneRequest('job/stop', { jobid: activeRcloneJobId });
+                 // Monitoring loop will detect finish/error shortly
             }
         }
 
@@ -1125,6 +1204,9 @@
 
                 if (statusRes && statusRes.finished) {
                     clearInterval(monitoringInterval);
+                    activeRcloneJobId = null;
+                    updateRunState(false);
+                    
                     const success = statusRes.success;
                     const log = {
                         date: new Date().toLocaleString(),
@@ -1170,6 +1252,18 @@
                 if (job.history.length > 50) job.history.pop();
                 // Save specific job to Mongo
                 saveJobToMongo(job);
+            }
+        }
+
+        async function clearJobHistory() {
+            if (!activeJobId) return;
+            if (confirm('Weet je zeker dat je de volledige geschiedenis van deze taak wilt wissen?')) {
+                const job = jobs.find(j => j.id === activeJobId);
+                if (job) {
+                    job.history = [];
+                    await saveJobToMongo(job);
+                    renderHistory(job);
+                }
             }
         }
 
