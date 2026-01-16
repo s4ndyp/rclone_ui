@@ -21,6 +21,7 @@
         }
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #181924; }
@@ -253,36 +254,34 @@
                             </div>
                         </div>
 
-                        <!-- Remote Stats -->
-                        <div class="grid grid-cols-3 gap-4">
-                            <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
-                                <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Totaal</div>
-                                <div id="remoteStatTotal" class="text-xl font-bold mt-1 text-white">-</div>
-                            </div>
-                            <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
-                                <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Gebruikt</div>
-                                <div id="remoteStatUsed" class="text-xl font-bold mt-1 text-yellow-400">-</div>
-                            </div>
-                            <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
-                                <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Vrij</div>
-                                <div id="remoteStatFree" class="text-xl font-bold mt-1 text-green-400">-</div>
-                            </div>
-                        </div>
-
-                        <div id="remoteStatError" class="hidden bg-yellow-900/20 text-yellow-200 p-4 rounded border border-yellow-800/50 text-sm">
-                            <i class="fa-solid fa-info-circle mr-2"></i> Deze remote ondersteunt geen opslagstatistieken of is niet bereikbaar.
-                        </div>
-
+                        <!-- Stats History Chart -->
                         <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
-                             <h4 class="font-bold text-white mb-4">Gekoppelde Taken</h4>
-                             <div id="remoteLinkedJobs" class="space-y-2">
-                                 <!-- Linked jobs rendered here -->
+                             <div class="flex justify-between items-center mb-6">
+                                 <h4 class="font-bold text-white flex items-center gap-2">
+                                     <i class="fa-solid fa-chart-line text-blue-400"></i> Historisch Gebruik (90 dagen)
+                                 </h4>
+                                 <div class="flex gap-4 text-[10px] uppercase font-bold tracking-wider">
+                                     <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Grootte (GB)</div>
+                                     <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-400"></span> Bestanden</div>
+                                 </div>
+                             </div>
+                             <div class="h-64 relative">
+                                 <canvas id="remoteHistoryChart"></canvas>
                              </div>
                         </div>
-                        
-                        <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
-                             <h4 class="font-bold text-white mb-4">Configuratie</h4>
-                             <pre id="remoteConfigDump" class="text-xs text-gray-400 font-mono bg-darkbg p-4 rounded overflow-x-auto"></pre>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                 <h4 class="font-bold text-white mb-4">Gekoppelde Taken</h4>
+                                 <div id="remoteLinkedJobs" class="space-y-2">
+                                     <!-- Linked jobs rendered here -->
+                                 </div>
+                            </div>
+                            
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                 <h4 class="font-bold text-white mb-4">Configuratie</h4>
+                                 <pre id="remoteConfigDump" class="text-[10px] text-gray-400 font-mono bg-darkbg p-4 rounded overflow-x-auto max-h-48"></pre>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -459,6 +458,8 @@
         // --- STATE ---
         let jobs = []; // Loaded from Mongo
         let configuredRemotes = {}; // Cache for remotes
+        let remoteStats = {}; // Cache for latest remote stats { name: { size: bytes, count: total, date: 'YYYY-MM-DD' } }
+        let remoteHistory = {}; // Cache for 90 days history { name: [ { date, size, count } ] }
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
         let activeRemoteName = null;
@@ -514,12 +515,85 @@
                         ...j,
                         id: j.id || j._id // Ensure we have an id for internal use
                     }));
-                    renderSidebar();
                 }
+
+                // Fetch latest remote stats
+                const allStats = await manager.getSmartCollection('remote_stats');
+                if (Array.isArray(allStats)) {
+                    // Group by remote and find latest for each
+                    remoteStats = {};
+                    allStats.forEach(s => {
+                        if (!remoteStats[s.remote] || new Date(s.date) > new Date(remoteStats[s.remote].date)) {
+                            remoteStats[s.remote] = s;
+                        }
+                    });
+                }
+                
+                renderSidebar();
+                checkDailyStatsSync();
             } catch (e) {
                 console.warn("Server sync failed:", e);
                 // Optionally handle offline state here if needed
             }
+        }
+
+        async function checkDailyStatsSync() {
+            const today = new Date().toISOString().split('T')[0];
+            const lastSync = localStorage.getItem('last_remote_stats_sync');
+            
+            if (lastSync !== today) {
+                console.log("Daily remote stats sync starting...");
+                await updateAllRemoteStats();
+                localStorage.setItem('last_remote_stats_sync', today);
+            }
+        }
+
+        async function updateAllRemoteStats() {
+            if (Object.keys(configuredRemotes).length === 0) {
+                const res = await rcloneRequest('config/dump');
+                if (res) configuredRemotes = res;
+            }
+
+            for (const name in configuredRemotes) {
+                await updateRemoteStats(name);
+            }
+        }
+
+        async function updateRemoteStats(name) {
+            console.log(`Updating stats for ${name}...`);
+            
+            // Try operations/about first for disk info
+            const about = await rcloneRequest('operations/about', { fs: name + ':' });
+            // Then operations/size for file count and accurate usage
+            const size = await rcloneRequest('operations/size', { fs: name + ':' });
+            
+            if (size || about) {
+                const today = new Date().toISOString().split('T')[0];
+                const statsObj = {
+                    remote: name,
+                    date: today,
+                    size: size ? size.bytes : (about ? about.used : 0),
+                    count: size ? size.count : 0,
+                    total: about ? about.total : null,
+                    free: about ? about.free : null,
+                    _id: `${name}_${today}` // Use _id to allow updates if already exists for today
+                };
+                
+                // Save to Mongo
+                await manager.saveSmartDocument('remote_stats', statsObj);
+                
+                // Update local state
+                remoteStats[name] = statsObj;
+                renderSidebar();
+                
+                // If this is the active remote, update chart
+                if (activeRemoteName === name) {
+                    renderRemoteHistoryChart(name);
+                }
+                
+                return statsObj;
+            }
+            return null;
         }
 
         async function saveJobToMongo(job) {
@@ -729,6 +803,8 @@
             }
         }
 
+        let remoteChart = null;
+
         async function selectRemote(name) {
             activeRemoteName = name;
             renderSidebar();
@@ -773,48 +849,85 @@
             };
             document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
 
-            // Fetch Stats
-            document.getElementById('remoteStatTotal').innerText = '...';
-            document.getElementById('remoteStatUsed').innerText = '...';
-            document.getElementById('remoteStatFree').innerText = '...';
-            document.getElementById('remoteStatError').classList.add('hidden');
+            // Fetch History for Chart (90 days)
+            renderRemoteHistoryChart(name);
+        }
 
-            const about = await rcloneRequest('operations/about', { fs: name + ':' });
-            const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
-
-            const usedEl = document.getElementById('remoteStatUsed');
-
-            // Check if about returns valid numbers. SMB often returns {} (empty object) or undefined.
-            if (about && typeof about.total === 'number') {
-                document.getElementById('remoteStatTotal').innerText = about.total ? fmt(about.total) : '-';
-                usedEl.innerText = about.used ? fmt(about.used) : '-';
-                document.getElementById('remoteStatFree').innerText = about.free ? fmt(about.free) : '-';
-            } else {
-                document.getElementById('remoteStatTotal').innerText = '-';
-                usedEl.innerText = '-';
-                document.getElementById('remoteStatFree').innerText = '-';
+        async function renderRemoteHistoryChart(name) {
+            try {
+                // Fetch all stats for this remote
+                const allStats = await manager.getSmartCollection('remote_stats');
+                const history = allStats
+                    .filter(s => s.remote === name)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
                 
-                // Show Calculate Size button for fallback or SMB
-                usedEl.innerHTML = ''; // Clear placeholder
-                
-                const btn = document.createElement('button');
-                btn.className = "text-xs bg-blue-900 hover:bg-blue-700 text-blue-200 px-3 py-1 rounded transition flex items-center gap-2";
-                btn.innerHTML = '<i class="fa-solid fa-calculator"></i> Bereken gebruik';
-                btn.onclick = async (e) => {
-                    e.stopPropagation();
-                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Bezig...';
-                    btn.disabled = true;
-                    
-                    const size = await rcloneRequest('operations/size', { fs: name + ':' });
-                    if (size) {
-                        usedEl.innerHTML = '';
-                        usedEl.innerText = size.bytes ? `${fmt(size.bytes)} (${size.count} bestanden)` : '0 B';
-                    } else {
-                        btn.innerHTML = '<i class="fa-solid fa-exclamation-triangle"></i> Fout';
-                        btn.classList.add('bg-red-900', 'text-red-200');
+                // Filter last 90 days
+                const ninetyDaysAgo = new Date();
+                ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+                const filteredHistory = history.filter(s => new Date(s.date) >= ninetyDaysAgo);
+
+                const labels = filteredHistory.map(s => s.date);
+                const sizeData = filteredHistory.map(s => (s.size / 1024 / 1024 / 1024).toFixed(2));
+                const countData = filteredHistory.map(s => s.count);
+
+                if (remoteChart) remoteChart.destroy();
+
+                const ctx = document.getElementById('remoteHistoryChart').getContext('2d');
+                remoteChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Grootte (GB)',
+                                data: sizeData,
+                                backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                borderWidth: 1,
+                                borderRadius: 4,
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                type: 'line',
+                                borderColor: 'rgba(74, 222, 128, 1)',
+                                backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                                borderWith: 2,
+                                tension: 0.4,
+                                fill: false,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10 } },
+                                title: { display: true, text: 'Grootte (GB)', color: 'rgba(255, 255, 255, 0.3)', font: { size: 10 } }
+                            },
+                            y1: {
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                ticks: { color: 'rgba(74, 222, 128, 0.5)', font: { size: 10 } },
+                                title: { display: true, text: 'Aantal Bestanden', color: 'rgba(74, 222, 128, 0.3)', font: { size: 10 } }
+                            }
+                        }
                     }
-                };
-                usedEl.appendChild(btn);
+                });
+            } catch (e) {
+                console.error("Failed to render chart:", e);
             }
         }
 
@@ -870,10 +983,12 @@
                 
                 remoteNames.forEach(name => {
                     const config = configuredRemotes[name];
+                    const stats = remoteStats[name];
                     const host = config.host || (config.parameters && config.parameters.host) || '';
+                    const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
                     
                     const div = document.createElement('div');
-                    div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-2 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
+                    div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-3 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
                     div.onclick = () => selectRemote(name);
                     div.innerHTML = `
                         <div class="flex items-center gap-3">
@@ -883,8 +998,37 @@
                             <div class="min-w-0 flex-1">
                                 <div class="font-bold text-white truncate">${name}</div>
                                 <div class="text-[10px] text-gray-500 truncate uppercase tracking-wider">${config.type}</div>
-                                ${host ? `<div class="text-2xl font-bold text-cyan-400/80 mt-1 truncate">${host}</div>` : ''}
                             </div>
+                        </div>
+                        
+                        ${host ? `<div class="text-xs font-mono text-cyan-400/80 truncate opacity-70">${host}</div>` : ''}
+
+                        <div class="flex flex-col gap-1 border-t border-darkborder pt-2 mt-1">
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>GEBRUIK</span>
+                                <span class="font-bold text-gray-200">${stats ? fmt(stats.size) : '-'}</span>
+                            </div>
+                            ${stats && stats.total ? `
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>TOTAAL</span>
+                                <span class="font-bold text-gray-200">${fmt(stats.total)}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>VRIJ</span>
+                                <span class="font-bold text-green-400">${fmt(stats.free)}</span>
+                            </div>
+                            ` : ''}
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>BESTANDEN</span>
+                                <span class="font-bold text-gray-200">${stats ? stats.count : '-'}</span>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                             <button onclick="event.stopPropagation(); this.innerHTML='<i class=\'fa-solid fa-spinner fa-spin\'></i>'; updateRemoteStats('${name}')" 
+                                     class="flex-1 bg-blue-900/30 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30 uppercase">
+                                <i class="fa-solid fa-calculator"></i> BEREKEN
+                            </button>
                         </div>
                     `;
                     list.appendChild(div);
