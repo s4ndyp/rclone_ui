@@ -2415,16 +2415,32 @@
             try {
                 console.log('Checking scheduler status...');
 
-                // First check if backend is running
-                const testResponse = await fetch('/api/get_jobs');
-                if (!testResponse.ok) {
-                    alert('Backend server is not running! Start python rclone_manager.py first.');
+                // First check if backend is running at all
+                try {
+                    const testResponse = await fetch('/api/get_jobs');
+                    if (!testResponse.ok) {
+                        throw new Error(`HTTP ${testResponse.status}`);
+                    }
+                } catch (error) {
+                    alert(`Backend server is NOT running! ❌
+
+Error: ${error.message}
+
+Start the server with:
+cd "C:\\Users\\sandman\\Desktop\\Cursor\\rclone-webui-react-master\\New UI"
+python rclone_manager.py
+
+Then refresh this page.`);
                     return;
                 }
 
+                // Backend is running, get scheduler status
                 const response = await fetch('/api/scheduler_status');
-                const status = await response.json();
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
 
+                const status = await response.json();
                 console.log('Scheduler Status:', status);
 
                 // Show current backend time vs frontend time
@@ -2436,22 +2452,33 @@
 
                 const frontendDay = new Date().getDay() === 0 ? 7 : new Date().getDay();
 
+                const jobList = status.jobs.map(j => `📋 ${j.name || 'unnamed'}
+   Type: ${j.type || 'unknown'}
+   Schedule: ${j.schedule ? JSON.stringify(j.schedule) : 'none'}
+   Enabled: ${j.enabled !== false ? '✅' : '❌'}`).join('\n\n');
+
                 alert(`Backend Server: RUNNING ✅
 
-Backend Time: ${status.current_time} (Day: ${status.current_day})
-Frontend Time: ${frontendTime} (Day: ${frontendDay})
-Timezone: ${status.timezone}
+🕐 Backend Time: ${status.current_time} (Day: ${status.current_day})
+🕐 Frontend Time: ${frontendTime} (Day: ${frontendDay})
+🌍 Timezone: ${status.timezone || 'unknown'}
 
-Jobs Found: ${status.jobs_count}
+📊 Jobs Found: ${status.jobs_count}
 
-${status.jobs.map(j => `📋 ${j.name}
-   Type: ${j.type}
-   Schedule: ${JSON.stringify(j.schedule)}
-   Enabled: ${j.enabled}`).join('\n\n')}`);
+${jobList}
+
+💡 Tip: Check Python console for scheduler logs every 5 minutes.`);
 
             } catch (error) {
                 console.error('Scheduler status check failed:', error);
-                alert('Scheduler status check failed: ' + error.message + '\n\nMake sure the Python backend server is running!');
+                alert(`Scheduler status check failed: ${error.message}
+
+Possible causes:
+• Backend server not running
+• Network connectivity issues
+• Server configuration problems
+
+Try restarting the Python server.`);
             }
         }
 
