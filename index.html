@@ -1582,14 +1582,14 @@
                 if (isNaN(hours) || isNaN(minutes)) return null;
 
                 const now = new Date();
-                const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+                const currentDay = now.getDay() === 0 ? 7 : now.getDay(); // Convert to 1-7 format (Monday = 1, Sunday = 7)
 
                 // Find next scheduled day
                 let daysToAdd = 0;
                 let found = false;
 
                 for (let i = 0; i < 7; i++) {
-                    const checkDay = (currentDay + i) % 7;
+                    const checkDay = ((currentDay - 1 + i) % 7) + 1; // Convert to 1-7 range
                     if (scheduleDays.includes(checkDay)) {
                         daysToAdd = i;
                         found = true;
@@ -2484,6 +2484,7 @@
                     time: scheduleTime,
                     days: days
                 };
+                console.log('Saving job with schedule:', schedule);
             }
 
             let jobToSave;
