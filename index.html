@@ -78,6 +78,7 @@
                 </div>
             </div>
             <div class="flex items-center gap-4">
+                <div id="currentTime" class="text-lg font-semibold text-white"></div>
                 <div id="connectionStatus" class="flex items-center gap-2 text-sm text-red-400">
                     <span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken
                 </div>
@@ -2396,6 +2397,19 @@
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
 
+        function updateCurrentTime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('nl-NL', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            const timeElement = document.getElementById('currentTime');
+            if (timeElement) {
+                timeElement.textContent = timeString;
+            }
+        }
+
         function toggleScheduleDay(dayNum) {
             const btn = document.getElementById(`day-${dayNum}`);
             const hiddenInput = document.getElementById('jobScheduleDays');
@@ -2522,9 +2536,11 @@
         // --- INIT ---
         syncWithServer();
         renderSidebar();
+        // Start time update
+        updateCurrentTime();
+        setInterval(updateCurrentTime, 1000);
         // Initial connection check
         rcloneRequest('core/version').then(res => updateStatus(!!res));
     </script>
 </body>
-</html>
 </html>
