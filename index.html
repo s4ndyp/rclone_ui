@@ -1457,13 +1457,21 @@
             if (!job.history || job.history.length === 0) return null;
 
             // Sort by date descending and get the most recent
-            const sortedHistory = job.history.sort((a, b) => new Date(b.date) - new Date(a.date));
+            const sortedHistory = job.history.sort((a, b) => {
+                // Custom sort function that can handle different date formats
+                const dateA = parseDateString(a.date);
+                const dateB = parseDateString(b.date);
+                return dateB - dateA; // Descending order (newest first)
+            });
             const lastRun = sortedHistory[0];
 
             if (!lastRun.date) return null;
 
             try {
-                const date = new Date(lastRun.date);
+                const date = parseDateString(lastRun.date);
+                if (!date || isNaN(date.getTime())) {
+                    return lastRun.date; // Fallback to raw date
+                }
                 return date.toLocaleDateString('nl-NL', {
                     day: '2-digit',
                     month: '2-digit',
@@ -1473,6 +1481,34 @@
             } catch (e) {
                 return lastRun.date; // Fallback to raw date
             }
+        }
+
+        function parseDateString(dateStr) {
+            if (!dateStr) return null;
+
+            // If it's already a valid date, return it
+            const date = new Date(dateStr);
+            if (!isNaN(date.getTime())) {
+                return date;
+            }
+
+            // Try to parse common Dutch date formats
+            // Format: "15-1-2024 14:30:25" (DD-MM-YYYY HH:mm:ss)
+            const dutchDateMatch = dateStr.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+            if (dutchDateMatch) {
+                const [, day, month, year, hour, minute, second] = dutchDateMatch;
+                return new Date(year, month - 1, day, hour, minute, second || 0);
+            }
+
+            // Try to parse ISO-like format
+            const isoMatch = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/);
+            if (isoMatch) {
+                const [, year, month, day, hour, minute, second] = isoMatch;
+                return new Date(year, month - 1, day, hour, minute, second || 0);
+            }
+
+            // Fallback: return the original date (might still be invalid)
+            return date;
         }
 
         function getNextScheduledRun(job) {
@@ -1508,11 +1544,20 @@
             if (!job.history || job.history.length === 0) return null;
 
             // Find the last successful run with size information
-            const lastRun = job.history.find(log =>
+            const successfulRuns = job.history.filter(log =>
                 log.status === 'Succes' && log.size && parseFloat(log.size) > 0
             );
 
-            if (!lastRun) return null;
+            if (successfulRuns.length === 0) return null;
+
+            // Sort by date and get the most recent
+            const sortedRuns = successfulRuns.sort((a, b) => {
+                const dateA = parseDateString(a.date);
+                const dateB = parseDateString(b.date);
+                return dateB - dateA; // Descending order (newest first)
+            });
+
+            const lastRun = sortedRuns[0];
 
             // Extract bytes from size string (e.g., "150.5 MB" -> 150.5 * 1024 * 1024)
             const sizeMatch = lastRun.size.match(/([\d.]+)\s*(MB|GB|TB)/i);
