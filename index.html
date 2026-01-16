@@ -502,14 +502,8 @@
                 if (Array.isArray(allStats)) {
                     remoteStats = {};
                     allStats.forEach(doc => {
-                        // Support consolidated structure (single record for all remotes)
-                        if (doc.remotes && typeof doc.remotes === 'object') {
-                            // New consolidated structure - single record with all remotes
-                            Object.keys(doc.remotes).forEach(remoteName => {
-                                remoteStats[remoteName] = doc.remotes[remoteName];
-                            });
-                        } else if (doc.history && Array.isArray(doc.history)) {
-                            // Legacy structure (single remote per document)
+                        // Support new structure (individual history per remote)
+                        if (doc.history && Array.isArray(doc.history)) {
                             remoteStats[doc.remote || doc._id] = doc;
                         }
                     });
@@ -517,11 +511,6 @@
                 
                 renderSidebar();
                 checkDailyStatsSync();
-
-                // Refresh chart if a remote is currently selected
-                if (activeRemoteName && remoteStats[activeRemoteName]) {
-                    renderRemoteChart(activeRemoteName, 'remoteHistoryChart');
-                }
             } catch (e) {
                 console.warn("Server sync failed:", e);
                 // Optionally handle offline state here if needed
@@ -548,6 +537,16 @@
             for (const name in configuredRemotes) {
                 await updateRemoteStats(name);
             }
+
+            // Also update task remstats for all jobs
+            for (const job of jobs) {
+                if (job.source) {
+                    await updateTaskRemStats(job.id, job.source);
+                }
+                if (job.dest) {
+                    await updateTaskRemStats(job.id, job.dest);
+                }
+            }
         }
 
         async function updateRemoteStats(name) {
@@ -565,44 +564,31 @@
                     size: size ? size.bytes : (about ? about.used : 0),
                     count: size ? size.count : 0,
                     total: about ? about.total : null,
-                    free: about ? about.free : null,
-                    remote: name
+                    free: about ? about.free : null
                 };
 
-                // Fetch the consolidated remstats record (single record for all remotes)
-                // First, try to find existing consolidated record by checking all documents
-                const allRemstatsDocs = await manager.getSmartCollection('remstats');
-                let consolidatedRecord = null;
-                if (Array.isArray(allRemstatsDocs)) {
-                    consolidatedRecord = allRemstatsDocs.find(doc => doc.remotes && typeof doc.remotes === 'object');
-                }
-
-                if (!consolidatedRecord) {
-                    consolidatedRecord = {
-                        remotes: {}
-                    };
-                }
-
-                if (!consolidatedRecord.remotes) consolidatedRecord.remotes = {};
-
-                // Initialize remote entry if it doesn't exist
-                if (!consolidatedRecord.remotes[name]) {
-                    consolidatedRecord.remotes[name] = {
+                // Fetch existing record or create new
+                let record = await manager.getSmartDocument('remstats', name);
+                if (!record) {
+                    record = {
+                        _id: name,
                         remote: name,
                         history: []
                     };
                 }
 
+                if (!record.history) record.history = [];
+
                 // Remove today's entry if exists (overwrite)
-                consolidatedRecord.remotes[name].history = consolidatedRecord.remotes[name].history.filter(h => h.date !== today);
-                consolidatedRecord.remotes[name].history.push(newEntry);
-                consolidatedRecord.remotes[name].history.sort((a, b) => new Date(a.date) - new Date(b.date));
+                record.history = record.history.filter(h => h.date !== today);
+                record.history.push(newEntry);
+                record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
 
                 // Save to Mongo
-                await manager.saveSmartDocument('remstats', consolidatedRecord);
+                await manager.saveSmartDocument('remstats', record);
 
                 // Update local state
-                remoteStats[name] = consolidatedRecord.remotes[name];
+                remoteStats[name] = record;
                 renderSidebar();
 
                 // Refresh detail view if open
@@ -610,9 +596,60 @@
                     selectRemote(name);
                 }
 
-                return consolidatedRecord.remotes[name];
+                return record;
             }
             return null;
+        }
+
+        async function updateTaskRemStats(jobId, path) {
+            console.log(`Updating task remstats for ${jobId} at ${path}...`);
+
+            try {
+                const size = await rcloneRequest('operations/size', { fs: path });
+
+                if (size) {
+                    const today = new Date().toISOString().split('T')[0];
+                    const newEntry = {
+                        date: today,
+                        size: size.bytes,
+                        count: size.count
+                    };
+
+                    // Create unique ID for this task-path combination
+                    const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+                    // Fetch existing record or create new
+                    let record = await manager.getSmartDocument('taskremstats', statsId);
+                    if (!record) {
+                        record = {
+                            _id: statsId,
+                            jobId: jobId,
+                            path: path,
+                            history: []
+                        };
+                    }
+
+                    if (!record.history) record.history = [];
+
+                    // Remove today's entry if exists (overwrite)
+                    record.history = record.history.filter(h => h.date !== today);
+                    record.history.push(newEntry);
+                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    // Save to Mongo
+                    await manager.saveSmartDocument('taskremstats', record);
+
+                    return record;
+                }
+            } catch (e) {
+                console.warn(`Failed to get size for ${path}:`, e);
+            }
+            return null;
+        }
+
+        async function getTaskRemStats(jobId, path) {
+            const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            return await manager.getSmartDocument('taskremstats', statsId);
         }
 
         async function handleUpdateRemoteStats(event, btn, name) {
@@ -847,37 +884,6 @@
             document.getElementById('remoteDetailTitle').innerText = name;
             document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
 
-            // --- History Chart ---
-            const chartContainer = document.getElementById('remoteHistoryChartContainer');
-            if (chartContainer) {
-                // If container exists (e.g. from static HTML or previous render), use it
-                // But actually I should create it dynamically or have it in static HTML.
-                // Let's create it dynamically in linkedJobsEl? No, that's for jobs.
-                // I should add a container in the static HTML or inject it here.
-                // Let's inject it into `remoteDetailContent`.
-            }
-            
-            // Inject Chart Container if not exists
-            let historySection = document.getElementById('remoteHistorySection');
-            if (!historySection) {
-                historySection = document.createElement('div');
-                historySection.id = 'remoteHistorySection';
-                historySection.className = 'bg-darkcard p-6 rounded-xl border border-darkborder';
-                historySection.innerHTML = `
-                    <h4 class="font-bold text-white mb-4 flex items-center gap-2">
-                        <i class="fa-solid fa-chart-line text-blue-400"></i> Gebruikshistorie
-                    </h4>
-                    <div class="h-64 w-full relative">
-                        <canvas id="remoteHistoryChart"></canvas>
-                    </div>
-                `;
-                // Insert before linked jobs
-                const linkedJobsContainer = document.getElementById('remoteLinkedJobsWithCharts').parentNode;
-                linkedJobsContainer.parentNode.insertBefore(historySection, linkedJobsContainer);
-            }
-            
-            // Render Chart
-            await renderRemoteChart(name, 'remoteHistoryChart');
 
             // Render linked jobs with individual charts
             const linkedJobsEl = document.getElementById('remoteLinkedJobsWithCharts');
@@ -890,7 +896,7 @@
                 linkedJobsEl.innerHTML = '';
                 linkedJobs.forEach(async (job, index) => {
                     const jobDiv = document.createElement('div');
-                    jobDiv.className = "border border-darkborder rounded-lg overflow-hidden";
+                    jobDiv.className = "border border-darkborder rounded-lg overflow-hidden mb-4";
 
                     // Job header
                     const headerDiv = document.createElement('div');
@@ -902,24 +908,54 @@
                     headerDiv.innerHTML = `
                         <div>
                             <div class="font-bold text-white">${job.name}</div>
-                            <div class="text-xs text-gray-400 font-mono">${job.source || job.dest}</div>
+                            <div class="text-xs text-gray-400 font-mono">${job.source} → ${job.dest}</div>
                         </div>
                         <i class="fa-solid fa-arrow-right text-gray-600"></i>
                     `;
 
-                    // Chart container
-                    const chartDiv = document.createElement('div');
-                    chartDiv.className = "p-4 h-48 relative";
-                    const canvas = document.createElement('canvas');
-                    canvas.id = `jobChart-${job.id}`;
-                    chartDiv.appendChild(canvas);
-
                     jobDiv.appendChild(headerDiv);
-                    jobDiv.appendChild(chartDiv);
-                    linkedJobsEl.appendChild(jobDiv);
 
-                    // Render individual job chart
-                    await renderJobChart(job, canvas.id);
+                    // Source path remstats
+                    if (job.source && job.source.startsWith(name + ':')) {
+                        const sourceStatsDiv = document.createElement('div');
+                        sourceStatsDiv.className = "p-4 border-b border-darkborder";
+                        sourceStatsDiv.innerHTML = `
+                            <h5 class="font-semibold text-gray-300 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-folder text-green-400"></i> Source: ${job.source}
+                            </h5>
+                            <div class="h-48 relative">
+                                <canvas id="taskRemStats-${job.id}-source"></canvas>
+                            </div>
+                        `;
+                        jobDiv.appendChild(sourceStatsDiv);
+
+                        // Update and render source stats
+                        await updateTaskRemStats(job.id, job.source);
+                        const sourceStats = await getTaskRemStats(job.id, job.source);
+                        await renderTaskRemStatsChart(sourceStats, `taskRemStats-${job.id}-source`);
+                    }
+
+                    // Destination path remstats
+                    if (job.dest && job.dest.startsWith(name + ':')) {
+                        const destStatsDiv = document.createElement('div');
+                        destStatsDiv.className = "p-4";
+                        destStatsDiv.innerHTML = `
+                            <h5 class="font-semibold text-gray-300 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-folder text-blue-400"></i> Destination: ${job.dest}
+                            </h5>
+                            <div class="h-48 relative">
+                                <canvas id="taskRemStats-${job.id}-dest"></canvas>
+                            </div>
+                        `;
+                        jobDiv.appendChild(destStatsDiv);
+
+                        // Update and render destination stats
+                        await updateTaskRemStats(job.id, job.dest);
+                        const destStats = await getTaskRemStats(job.id, job.dest);
+                        await renderTaskRemStatsChart(destStats, `taskRemStats-${job.id}-dest`);
+                    }
+
+                    linkedJobsEl.appendChild(jobDiv);
                 });
             } else {
                 linkedJobsEl.innerHTML = '<div class="text-center py-8 text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
@@ -1037,6 +1073,107 @@
                 });
             } catch (e) {
                 console.error("Remote chart error:", e);
+            }
+        }
+
+        let taskRemStatsCharts = {}; // Store task remstats charts
+
+        async function renderTaskRemStatsChart(record, canvasId) {
+            try {
+                if (!record || !record.history || record.history.length === 0) {
+                    const ctx = document.getElementById(canvasId).getContext('2d');
+                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    ctx.font = '14px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Nog geen remstats beschikbaar', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                    return;
+                }
+
+                const labels = record.history.map(h => h.date);
+                const sizeData = record.history.map(h => {
+                    const gb = h.size / 1024 / 1024 / 1024;
+                    return gb;
+                });
+                const countData = record.history.map(h => h.count);
+
+                // Destroy existing chart if it exists
+                if (taskRemStatsCharts[canvasId]) {
+                    taskRemStatsCharts[canvasId].destroy();
+                }
+
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                taskRemStatsCharts[canvasId] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Grootte (GB)',
+                                data: sizeData,
+                                backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                                borderColor: 'rgba(34, 197, 94, 1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'y',
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                borderWidth: 2,
+                                tension: 0.3,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: true, labels: { color: '#9ca3af' } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.dataset.yAxisID === 'y') {
+                                            return context.parsed.y.toFixed(2) + ' GB';
+                                        }
+                                        return context.parsed.y + ' bestanden';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#22c55e', callback: (val) => val.toFixed(1) + ' GB' }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                ticks: { color: '#3b82f6' }
+                            }
+                        }
+                    }
+                });
+
+            } catch (e) {
+                console.error("Task remstats chart error:", e);
             }
         }
 
