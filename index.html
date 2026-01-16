@@ -518,7 +518,7 @@
                 }
 
                 // Fetch latest remote stats
-                const allStats = await manager.getSmartCollection('remote_stats');
+                const allStats = await manager.getSmartCollection('remstats');
                 if (Array.isArray(allStats)) {
                     // Group by remote and find latest for each
                     remoteStats = {};
@@ -580,7 +580,7 @@
                 };
                 
                 // Save to Mongo
-                await manager.saveSmartDocument('remote_stats', statsObj);
+                await manager.saveSmartDocument('remstats', statsObj);
                 
                 // Update local state
                 remoteStats[name] = statsObj;
@@ -869,7 +869,7 @@
         async function renderRemoteHistoryChart(name) {
             try {
                 // Fetch all stats for this remote
-                const allStats = await manager.getSmartCollection('remote_stats');
+                const allStats = await manager.getSmartCollection('remstats');
                 const history = allStats
                     .filter(s => s.remote === name)
                     .sort((a, b) => new Date(a.date) - new Date(b.date));

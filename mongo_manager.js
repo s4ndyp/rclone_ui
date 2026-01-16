@@ -27,15 +27,35 @@ class DataGateway {
     }
 
     async saveDocument(name, data) {
-        const method = data._id ? 'PUT' : 'POST';
-        const url = this._getUrl(name, data._id);
-        const response = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json', 'x-client-id': this.clientId },
-            body: JSON.stringify(data)
-        });
-        if (!response.ok) throw new Error(`Save error: ${response.status}`);
-        return await response.json();
+        let method = data._id ? 'PUT' : 'POST';
+        let url = this._getUrl(name, data._id);
+        
+        try {
+            const response = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json', 'x-client-id': this.clientId },
+                body: JSON.stringify(data)
+            });
+
+            // If PUT fails with 404, it means the record with manual _id doesn't exist yet.
+            // In that case, we should try a POST to create it.
+            if (!response.ok && response.status === 404 && method === 'PUT') {
+                const postUrl = this._getUrl(name);
+                const postResponse = await fetch(postUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-client-id': this.clientId },
+                    body: JSON.stringify(data)
+                });
+                if (!postResponse.ok) throw new Error(`Save (POST fallback) error: ${postResponse.status}`);
+                return await postResponse.json();
+            }
+
+            if (!response.ok) throw new Error(`Save error: ${response.status}`);
+            return await response.json();
+        } catch (e) {
+            console.error("Gateway saveDocument error:", e);
+            throw e;
+        }
     }
 
     async deleteDocument(name, id) {
