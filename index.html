@@ -1023,28 +1023,52 @@
              const container = document.getElementById(`chart-${index}`);
              const res = log.checkResult || {};
              
-             container.className = "w-full bg-darkcard rounded-lg border border-darkborder p-4 relative overflow-y-auto";
+             container.className = "w-full bg-darkcard rounded-lg border border-darkborder p-4 relative overflow-y-auto max-h-96";
+             
+             // Helpers
+             const renderFileList = (title, files, colorClass) => {
+                 if (!files || files.length === 0) return '';
+                 return `
+                    <div class="mt-2">
+                        <div class="text-xs font-bold uppercase mb-1 ${colorClass}">${title} (${files.length})</div>
+                        <div class="text-[10px] font-mono bg-darkbg p-2 rounded max-h-32 overflow-y-auto border border-darkborder/50 text-gray-400">
+                            ${files.map(f => `<div>${f}</div>`).join('')}
+                        </div>
+                    </div>
+                 `;
+             };
+
+             // Use 'differ' if available, otherwise 'difference'
+             const differences = res.differ || res.difference || [];
+             const missingSrc = res.missingOnSrc || [];
+             const missingDst = res.missingOnDst || [];
+
+             // If no issues
+             if (differences.length === 0 && missingSrc.length === 0 && missingDst.length === 0) {
+                 container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-green-400 space-y-2">
+                        <i class="fa-solid fa-check-circle text-3xl"></i>
+                        <div class="font-bold">Geen verschillen gevonden</div>
+                        <div class="text-xs text-gray-500">Source en Destination zijn identiek.</div>
+                    </div>
+                 `;
+                 return;
+             }
+
              container.innerHTML = `
-                 <h5 class="text-xs font-bold text-gray-400 uppercase mb-2">Check Resultaten</h5>
-                 <div class="grid grid-cols-4 gap-4 text-sm mb-4">
-                      <div class="bg-green-900/20 p-2 rounded border border-green-900/30">
-                          <div class="text-xs text-gray-500">Matching</div>
-                          <div class="font-bold text-green-400">${res.match || 0}</div>
-                      </div>
-                      <div class="bg-yellow-900/20 p-2 rounded border border-yellow-900/30">
-                          <div class="text-xs text-gray-500">Difference</div>
-                          <div class="font-bold text-yellow-400">${res.difference || 0}</div>
-                      </div>
-                      <div class="bg-red-900/20 p-2 rounded border border-red-900/30">
-                          <div class="text-xs text-gray-500">Errors</div>
-                          <div class="font-bold text-red-400">${res.error || 0}</div>
-                      </div>
-                      <div class="bg-blue-900/20 p-2 rounded border border-blue-900/30">
-                          <div class="text-xs text-gray-500">Missing</div>
-                          <div class="font-bold text-blue-400">Src: ${res.missingOnSrc || 0} / Dst: ${res.missingOnDst || 0}</div>
+                 <h5 class="text-xs font-bold text-gray-400 uppercase mb-4 sticky top-0 bg-darkcard z-10 pb-2 border-b border-darkborder">Check Resultaten</h5>
+                 <div class="space-y-4">
+                      ${renderFileList('Verschillen (Modified)', differences, 'text-yellow-400')}
+                      
+                      <div class="grid grid-cols-2 gap-4">
+                          <div>
+                               ${renderFileList('Missing on Source', missingSrc, 'text-red-400')}
+                          </div>
+                          <div>
+                               ${renderFileList('Missing on Destination', missingDst, 'text-red-400')}
+                          </div>
                       </div>
                  </div>
-                 <div class="text-xs text-gray-500 italic">Zie rclone logs voor details over specifieke bestanden.</div>
              `;
         }
 
