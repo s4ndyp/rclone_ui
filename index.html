@@ -21,6 +21,7 @@
         }
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         ::-webkit-scrollbar { width: 8px; }
         ::-webkit-scrollbar-track { background: #181924; }
@@ -108,6 +109,9 @@
                             </div>
                         </div>
                         <div class="flex gap-2">
+                             <button id="btnCheckJob" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded flex items-center gap-2" title="Verifieer data integriteit">
+                                <i class="fa-solid fa-check-double"></i> Check
+                            </button>
                             <button id="btnRunNow" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded flex items-center gap-2">
                                 <i class="fa-solid fa-play"></i> Start
                             </button>
@@ -226,14 +230,59 @@
                 </div>
 
                 <div id="remotesView" class="hidden p-8 space-y-6">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-2xl font-bold text-white">Geconfigureerde Remotes</h3>
-                        <button onclick="openAddRemoteModal()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded flex items-center gap-2">
+                     <div id="remoteEmptyState" class="flex-1 flex flex-col items-center justify-center text-gray-500 h-full hidden">
+                        <i class="fa-solid fa-server text-6xl mb-4 text-darkborder"></i>
+                        <p>Selecteer een remote om statistieken te bekijken</p>
+                        <button onclick="openAddRemoteModal()" class="mt-4 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded flex items-center gap-2">
                             <i class="fa-solid fa-plus"></i> Nieuwe Remote
                         </button>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="remotesGrid">
-                        <!-- Remotes will be rendered here -->
+
+                    <div id="remoteDetailContent" class="hidden space-y-6">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 id="remoteDetailTitle" class="text-3xl font-bold text-white">Remote Naam</h3>
+                                <p id="remoteDetailType" class="text-gray-400 mt-2 font-mono text-sm"></p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button id="btnBrowseRemote" class="bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white px-4 py-2 rounded border border-blue-800/30">
+                                    <i class="fa-solid fa-folder-open"></i> Verkenner
+                                </button>
+                                <button id="btnDeleteRemote" class="bg-red-900/50 hover:bg-red-800 text-red-200 px-4 py-2 rounded border border-red-800/50">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Stats History Chart -->
+                        <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                             <div class="flex justify-between items-center mb-6">
+                                 <h4 class="font-bold text-white flex items-center gap-2">
+                                     <i class="fa-solid fa-chart-line text-blue-400"></i> Historisch Gebruik (90 dagen)
+                                 </h4>
+                                 <div class="flex gap-4 text-[10px] uppercase font-bold tracking-wider">
+                                     <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Grootte (GB)</div>
+                                     <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-400"></span> Bestanden</div>
+                                 </div>
+                             </div>
+                             <div class="h-64 relative">
+                                 <canvas id="remoteHistoryChart"></canvas>
+                             </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-6">
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                 <h4 class="font-bold text-white mb-4">Gekoppelde Taken</h4>
+                                 <div id="remoteLinkedJobs" class="space-y-2">
+                                     <!-- Linked jobs rendered here -->
+                                 </div>
+                            </div>
+                            
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                 <h4 class="font-bold text-white mb-4">Configuratie</h4>
+                                 <pre id="remoteConfigDump" class="text-[10px] text-gray-400 font-mono bg-darkbg p-4 rounded overflow-x-auto max-h-48"></pre>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -304,15 +353,26 @@
                         </button>
                     </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
-                    <div class="flex gap-2">
-                        <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
-                        <button type="button" onclick="openPathSelector('jobDest')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
-                            <i class="fa-solid fa-folder-tree"></i>
-                        </button>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                            <button type="button" onclick="openPathSelector('jobDest')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
+                                <i class="fa-solid fa-folder-tree"></i>
+                            </button>
+                        </div>
                     </div>
-                </div>
+                    
+                    <div>
+                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Excludes (één per regel of wildcard)</label>
+                         <div class="flex gap-2">
+                             <textarea id="jobExcludes" rows="3" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono text-xs" placeholder="*.tmp&#10;System Volume Information/**&#10;.DS_Store"></textarea>
+                             <button type="button" onclick="openPathSelector('jobExcludes', true)" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition h-auto">
+                                <i class="fa-solid fa-folder-tree"></i>
+                            </button>
+                         </div>
+                         <p class="text-[10px] text-gray-500 mt-1">Gebruik wildcards zoals *.log of map/**</p>
+                    </div>
                 
                 <div class="flex justify-between items-center pt-4">
                     <button type="button" id="btnDeleteInModal" onclick="deleteJobFromModal()" class="hidden bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-3 rounded-lg font-bold border border-red-800/50 transition">
@@ -397,8 +457,12 @@
 
         // --- STATE ---
         let jobs = []; // Loaded from Mongo
+        let configuredRemotes = {}; // Cache for remotes
+        let remoteStats = {}; // Cache for latest remote stats { name: { size: bytes, count: total, date: 'YYYY-MM-DD' } }
+        let remoteHistory = {}; // Cache for 90 days history { name: [ { date, size, count } ] }
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
+        let activeRemoteName = null;
         let activeRcloneJobId = null; // Track if a job is currently running
         let activeSection = 'backups';
         let monitoringInterval = null;
@@ -451,11 +515,97 @@
                         ...j,
                         id: j.id || j._id // Ensure we have an id for internal use
                     }));
-                    renderSidebar();
                 }
+
+                // Fetch latest remote stats
+                const allStats = await manager.getSmartCollection('remstats');
+                if (Array.isArray(allStats)) {
+                    // Group by remote and find latest for each
+                    remoteStats = {};
+                    allStats.forEach(s => {
+                        if (!remoteStats[s.remote] || new Date(s.date) > new Date(remoteStats[s.remote].date)) {
+                            remoteStats[s.remote] = s;
+                        }
+                    });
+                }
+                
+                renderSidebar();
+                checkDailyStatsSync();
             } catch (e) {
                 console.warn("Server sync failed:", e);
                 // Optionally handle offline state here if needed
+            }
+        }
+
+        async function checkDailyStatsSync() {
+            const today = new Date().toISOString().split('T')[0];
+            const lastSync = localStorage.getItem('last_remote_stats_sync');
+            
+            if (lastSync !== today) {
+                console.log("Daily remote stats sync starting...");
+                await updateAllRemoteStats();
+                localStorage.setItem('last_remote_stats_sync', today);
+            }
+        }
+
+        async function updateAllRemoteStats() {
+            if (Object.keys(configuredRemotes).length === 0) {
+                const res = await rcloneRequest('config/dump');
+                if (res) configuredRemotes = res;
+            }
+
+            for (const name in configuredRemotes) {
+                await updateRemoteStats(name);
+            }
+        }
+
+        async function updateRemoteStats(name) {
+            console.log(`Updating stats for ${name}...`);
+            
+            // Try operations/about first for disk info
+            const about = await rcloneRequest('operations/about', { fs: name + ':' });
+            // Then operations/size for file count and accurate usage
+            const size = await rcloneRequest('operations/size', { fs: name + ':' });
+            
+            if (size || about) {
+                const today = new Date().toISOString().split('T')[0];
+                const statsObj = {
+                    remote: name,
+                    date: today,
+                    size: size ? size.bytes : (about ? about.used : 0),
+                    count: size ? size.count : 0,
+                    total: about ? about.total : null,
+                    free: about ? about.free : null,
+                    _id: `${name}_${today}` // Use _id to allow updates if already exists for today
+                };
+                
+                // Save to Mongo
+                await manager.saveSmartDocument('remstats', statsObj);
+                
+                // Update local state
+                remoteStats[name] = statsObj;
+                renderSidebar();
+                
+                // If this is the active remote, update chart
+                if (activeRemoteName === name) {
+                    renderRemoteHistoryChart(name);
+                }
+                
+                return statsObj;
+            }
+            return null;
+        }
+
+        async function handleUpdateRemoteStats(event, btn, name) {
+            event.stopPropagation();
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+            try {
+                await updateRemoteStats(name);
+            } finally {
+                btn.innerHTML = originalHTML;
+                btn.disabled = false;
             }
         }
 
@@ -570,7 +720,7 @@
             document.getElementById('nav-browser').classList.toggle('active-link', section === 'browser');
             
             activeJobId = null;
-            renderSidebar();
+            activeRemoteName = null;
             
             document.getElementById('jobDetail').classList.add('hidden');
             document.getElementById('browserView').classList.add('hidden');
@@ -580,10 +730,15 @@
             if (section === 'browser') {
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('browserView').classList.remove('hidden');
+                renderSidebar();
             } else if (section === 'remotes') {
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('remotesView').classList.remove('hidden');
-                loadRemotes();
+                document.getElementById('remoteEmptyState').classList.remove('hidden');
+                document.getElementById('remoteDetailContent').classList.add('hidden');
+                loadRemotes(); // Will also render sidebar
+            } else {
+                renderSidebar();
             }
         }
 
@@ -653,35 +808,140 @@
         }
 
         async function loadRemotes() {
-            const grid = document.getElementById('remotesGrid');
-            grid.innerHTML = '<div class="col-span-full text-center py-10"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Remotes laden...</div>';
-            
+            // Update cache
             const res = await rcloneRequest('config/dump');
-            if (!res) {
-                grid.innerHTML = '<div class="col-span-full text-center text-red-400 py-10">Kon remotes niet laden.</div>';
-                return;
+            if (res) {
+                configuredRemotes = res;
+                renderSidebar();
+            }
+        }
+
+        let remoteChart = null;
+
+        async function selectRemote(name) {
+            activeRemoteName = name;
+            renderSidebar();
+
+            document.getElementById('remoteEmptyState').classList.add('hidden');
+            document.getElementById('remoteDetailContent').classList.remove('hidden');
+
+            const remoteConfig = configuredRemotes[name];
+            document.getElementById('remoteDetailTitle').innerText = name;
+            document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
+            document.getElementById('remoteConfigDump').innerText = JSON.stringify(remoteConfig, null, 2);
+
+            // Render linked jobs
+            const linkedJobsEl = document.getElementById('remoteLinkedJobs');
+            const linkedJobs = jobs.filter(j => 
+                (j.source && j.source.startsWith(name + ':')) || 
+                (j.dest && j.dest.startsWith(name + ':'))
+            );
+            
+            if (linkedJobs.length > 0) {
+                linkedJobsEl.innerHTML = '';
+                linkedJobs.forEach(job => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 bg-darkbg border border-darkborder rounded hover:border-gray-500 cursor-pointer transition flex justify-between items-center";
+                    div.onclick = () => {
+                         showSection('backups');
+                         selectJob(job.id);
+                    };
+                    div.innerHTML = `
+                        <div class="font-bold text-sm text-gray-300">${job.name}</div>
+                        <i class="fa-solid fa-arrow-right text-gray-600"></i>
+                    `;
+                    linkedJobsEl.appendChild(div);
+                });
+            } else {
+                linkedJobsEl.innerHTML = '<div class="text-sm text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
             }
 
-            grid.innerHTML = '';
-            Object.keys(res).forEach(name => {
-                const config = res[name];
-                const card = document.createElement('div');
-                card.className = "bg-darkcard border border-darkborder p-5 rounded-xl space-y-3";
-                card.innerHTML = `
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <div class="font-bold text-lg text-white">${name}:</div>
-                            <div class="text-xs text-gray-500 uppercase font-bold tracking-tighter">${config.type}</div>
-                        </div>
-                        <button onclick="deleteRemote('${name}')" class="text-gray-600 hover:text-red-400 transition"><i class="fa-solid fa-trash"></i></button>
-                    </div>
-                    <div class="text-sm text-gray-400 font-mono truncate">
-                        ${config.host || config.service_account_file || 'Remote storage'}
-                    </div>
-                    <button onclick="browsePath('${name}:')" class="w-full mt-2 py-2 bg-darkborder hover:bg-gray-700 text-xs rounded transition uppercase font-bold">Bekijken in verkenner</button>
-                `;
-                grid.appendChild(card);
-            });
+            document.getElementById('btnBrowseRemote').onclick = () => {
+                showSection('browser');
+                browsePath(name + ':');
+            };
+            document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
+
+            // Fetch History for Chart (90 days)
+            renderRemoteHistoryChart(name);
+        }
+
+        async function renderRemoteHistoryChart(name) {
+            try {
+                // Fetch all stats for this remote
+                const allStats = await manager.getSmartCollection('remstats');
+                const history = allStats
+                    .filter(s => s.remote === name)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
+                
+                // Filter last 90 days
+                const ninetyDaysAgo = new Date();
+                ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+                const filteredHistory = history.filter(s => new Date(s.date) >= ninetyDaysAgo);
+
+                const labels = filteredHistory.map(s => s.date);
+                const sizeData = filteredHistory.map(s => (s.size / 1024 / 1024 / 1024).toFixed(2));
+                const countData = filteredHistory.map(s => s.count);
+
+                if (remoteChart) remoteChart.destroy();
+
+                const ctx = document.getElementById('remoteHistoryChart').getContext('2d');
+                remoteChart = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Grootte (GB)',
+                                data: sizeData,
+                                backgroundColor: 'rgba(59, 130, 246, 0.4)',
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                borderWidth: 1,
+                                borderRadius: 4,
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                type: 'line',
+                                borderColor: 'rgba(74, 222, 128, 1)',
+                                backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                                borderWith: 2,
+                                tension: 0.4,
+                                fill: false,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10 } }
+                            },
+                            y: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10 } },
+                                title: { display: true, text: 'Grootte (GB)', color: 'rgba(255, 255, 255, 0.3)', font: { size: 10 } }
+                            },
+                            y1: {
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                ticks: { color: 'rgba(74, 222, 128, 0.5)', font: { size: 10 } },
+                                title: { display: true, text: 'Aantal Bestanden', color: 'rgba(74, 222, 128, 0.3)', font: { size: 10 } }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to render chart:", e);
+            }
         }
 
         function openAddRemoteModal() { document.getElementById('remoteModal').classList.remove('hidden'); }
@@ -725,6 +985,71 @@
         function renderSidebar() {
             const list = document.getElementById('jobList');
             list.innerHTML = '';
+
+                // --- REMOTES VIEW ---
+            if (activeSection === 'remotes') {
+                const remoteNames = Object.keys(configuredRemotes);
+                if (remoteNames.length === 0) {
+                     list.innerHTML = '<div class="text-center text-gray-600 py-10 text-sm italic">Geen remotes geconfigureerd</div>';
+                     return;
+                }
+                
+                remoteNames.forEach(name => {
+                    const config = configuredRemotes[name];
+                    const stats = remoteStats[name];
+                    const host = config.host || (config.parameters && config.parameters.host) || '';
+                    const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                    
+                    const div = document.createElement('div');
+                    div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-3 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
+                    div.onclick = () => selectRemote(name);
+                    div.innerHTML = `
+                        <div class="flex items-center gap-3">
+                            <div class="bg-purple-900/30 p-2 rounded-lg text-purple-400">
+                                <i class="fa-solid fa-server"></i>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <div class="font-bold text-white truncate">${name}</div>
+                                <div class="text-[10px] text-gray-500 truncate uppercase tracking-wider">${config.type}</div>
+                            </div>
+                        </div>
+                        
+                        ${host ? `<div class="text-xs font-mono text-cyan-400/80 truncate opacity-70">${host}</div>` : ''}
+
+                        <div class="flex flex-col gap-1 border-t border-darkborder pt-2 mt-1">
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>GEBRUIK</span>
+                                <span class="font-bold text-gray-200">${stats ? fmt(stats.size) : '-'}</span>
+                            </div>
+                            ${stats && stats.total ? `
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>TOTAAL</span>
+                                <span class="font-bold text-gray-200">${fmt(stats.total)}</span>
+                            </div>
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>VRIJ</span>
+                                <span class="font-bold text-green-400">${fmt(stats.free)}</span>
+                            </div>
+                            ` : ''}
+                            <div class="flex justify-between items-center text-[10px] text-gray-400">
+                                <span>BESTANDEN</span>
+                                <span class="font-bold text-gray-200">${stats ? stats.count : '-'}</span>
+                            </div>
+                        </div>
+
+                        <div class="flex gap-2">
+                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')" 
+                                     class="flex-1 bg-blue-900/30 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30 uppercase">
+                                <i class="fa-solid fa-calculator"></i> BEREKEN
+                            </button>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+                return;
+            }
+
+            // --- JOBS VIEW ---
             const filteredJobs = jobs.filter(j => (j.type || 'backup') === (activeSection === 'backups' ? 'backup' : 'mount'));
             
             if (filteredJobs.length === 0) {
@@ -778,6 +1103,7 @@
                 'mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400';
 
             document.getElementById('btnRunNow').onclick = () => startJob(id);
+            document.getElementById('btnCheckJob').onclick = () => startJob(id, true);
             document.getElementById('btnStopJob').onclick = () => stopJob(id);
             document.getElementById('btnEditJob').onclick = () => editJob(id);
             document.getElementById('btnDeleteJob').onclick = () => deleteJob(id);
@@ -799,6 +1125,19 @@
             document.getElementById('transferTableBody').innerHTML = '';
 
             renderHistory(job);
+        }
+
+        function getStatusColor(log) {
+            if (log.type === 'check') {
+                const res = log.checkResult || {};
+                const hasIssues = (res.differ && res.differ.length > 0) || 
+                                  (res.missingOnSrc && res.missingOnSrc.length > 0) || 
+                                  (res.missingOnDst && res.missingOnDst.length > 0) ||
+                                  (res.difference && res.difference.length > 0); // Fallback
+                
+                return hasIssues ? 'bg-orange-900 text-orange-200' : 'bg-green-900 text-green-200';
+            }
+            return log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200';
         }
 
         function renderHistory(job) {
@@ -834,7 +1173,7 @@
                 tr.innerHTML = `
                     <td class="p-4 text-gray-300 whitespace-nowrap">${log.date}</td>
                     <td class="p-4 text-gray-400">${log.duration || '-'}</td>
-                    <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">${log.status}</span></td>
+                    <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${getStatusColor(log)}">${log.status}</span></td>
                     <td class="p-4 text-right text-gray-400 font-mono">${log.speed || '-'}</td>
                     <td class="p-4 text-right text-gray-300 font-mono">${log.size || '-'}</td>
                     <td class="p-4 text-right text-gray-400 font-mono">${log.files || '-'}</td>
@@ -869,11 +1208,68 @@
             if (isHidden) {
                 detailRow.classList.remove('hidden');
                 icon.style.transform = "rotate(180deg)";
-                renderSpeedChart(index, log.speedSamples);
+                if (log.type === 'check') {
+                    renderCheckResults(index, log);
+                } else {
+                    renderSpeedChart(index, log.speedSamples);
+                }
             } else {
                 detailRow.classList.add('hidden');
                 icon.style.transform = "rotate(0deg)";
             }
+        }
+
+        function renderCheckResults(index, log) {
+             const container = document.getElementById(`chart-${index}`);
+             const res = log.checkResult || {};
+             
+             container.className = "w-full bg-darkcard rounded-lg border border-darkborder p-4 relative overflow-y-auto max-h-96";
+             
+             // Helpers
+             const renderFileList = (title, files, colorClass) => {
+                 if (!files || files.length === 0) return '';
+                 return `
+                    <div class="mt-2">
+                        <div class="text-xs font-bold uppercase mb-1 ${colorClass}">${title} (${files.length})</div>
+                        <div class="text-[10px] font-mono bg-darkbg p-2 rounded max-h-32 overflow-y-auto border border-darkborder/50 text-gray-400">
+                            ${files.map(f => `<div>${f}</div>`).join('')}
+                        </div>
+                    </div>
+                 `;
+             };
+
+             // Use 'differ' if available, otherwise 'difference'
+             const differences = res.differ || res.difference || [];
+             const missingSrc = res.missingOnSrc || [];
+             const missingDst = res.missingOnDst || [];
+
+             // If no issues
+             if (differences.length === 0 && missingSrc.length === 0 && missingDst.length === 0) {
+                 container.innerHTML = `
+                    <div class="flex flex-col items-center justify-center h-full text-green-400 space-y-2">
+                        <i class="fa-solid fa-check-circle text-3xl"></i>
+                        <div class="font-bold">Geen verschillen gevonden</div>
+                        <div class="text-xs text-gray-500">Source en Destination zijn identiek.</div>
+                    </div>
+                 `;
+                 return;
+             }
+
+             container.innerHTML = `
+                 <h5 class="text-xs font-bold text-gray-400 uppercase mb-4 sticky top-0 bg-darkcard z-10 pb-2 border-b border-darkborder">Check Resultaten</h5>
+                 <div class="space-y-4">
+                      ${renderFileList('Verschillen (Modified)', differences, 'text-yellow-400')}
+                      
+                      <div class="grid grid-cols-2 gap-4">
+                          <div>
+                               ${renderFileList('Missing on Source', missingSrc, 'text-red-400')}
+                          </div>
+                          <div>
+                               ${renderFileList('Missing on Destination', missingDst, 'text-red-400')}
+                          </div>
+                      </div>
+                 </div>
+             `;
         }
 
         function renderSpeedChart(index, samples) {
@@ -969,16 +1365,29 @@
         }
 
         let targetInputId = null;
+        let isExcludeSelector = false;
 
-        async function openPathSelector(inputId) {
+        async function openPathSelector(inputId, isExclude = false) {
             targetInputId = inputId;
-            document.getElementById('selectorPath').value = document.getElementById(inputId).value;
+            isExcludeSelector = isExclude;
+            
+            // For excludes, we don't load the initial value into the selector path 
+            // because it's a textarea with multiple lines. We start fresh or from source.
+            if (!isExclude) {
+                 document.getElementById('selectorPath').value = document.getElementById(inputId).value;
+            } else {
+                // Try to guess a starting path from the Source input
+                const sourceVal = document.getElementById('jobSource').value;
+                document.getElementById('selectorPath').value = sourceVal || '';
+            }
+
             document.getElementById('pathSelectorModal').classList.remove('hidden');
             await browseSelectorPath();
         }
 
         function closePathSelector() {
             document.getElementById('pathSelectorModal').classList.add('hidden');
+            isExcludeSelector = false;
         }
 
         async function browseSelectorPath(path) {
@@ -1034,13 +1443,45 @@
                 tbody.appendChild(tr);
             }
 
-            res.list.filter(item => item.IsDir).forEach(item => {
+            res.list.forEach(item => {
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-darkborder/30 transition cursor-pointer text-blue-200 border-b border-darkborder/50";
-                tr.onclick = () => browseSelectorPath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer border-b border-darkborder/50";
+                // Select mechanism
+                tr.onclick = () => {
+                     if (item.IsDir) {
+                         browseSelectorPath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                     } else {
+                         // If file, just select it
+                         document.getElementById('selectorPath').value = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+                     }
+                };
+                
+                // Add a specific select button/icon if in exclude mode? 
+                // Or just use the input field update.
+                // Update input field on hover or click (if file)?
+                // Let's update the input field on row click for visual feedback (handled above for file, dir enters)
+                
+                // Special handling for Exclude selector: we might want to select a DIRECTORY without entering it.
+                // We add a specific 'Select' button for directories in Exclude mode.
+                
+                let selectBtn = '';
+                if (isExcludeSelector && item.IsDir) {
+                     const fullItemPath = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+                     selectBtn = `<button onclick="event.stopPropagation(); document.getElementById('selectorPath').value='${fullItemPath}'; confirmPathSelection();" class="ml-2 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">Kies</button>`;
+                } else if (isExcludeSelector && !item.IsDir) {
+                     const fullItemPath = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+                     selectBtn = `<button onclick="event.stopPropagation(); document.getElementById('selectorPath').value='${fullItemPath}'; confirmPathSelection();" class="ml-2 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">Kies</button>`;
+                }
+
+                const iconColor = item.IsDir ? 'text-yellow-500' : 'text-blue-400';
+                const iconClass = item.IsDir ? 'fa-folder' : 'fa-file-lines';
+
                 tr.innerHTML = `
-                    <td class="p-3 text-center text-yellow-500"><i class="fa-solid fa-folder"></i></td>
-                    <td class="p-3 font-medium">${item.Name}</td>
+                    <td class="p-3 text-center ${iconColor}"><i class="fa-solid ${iconClass}"></i></td>
+                    <td class="p-3 font-medium flex items-center justify-between">
+                        <span>${item.Name}</span>
+                        ${selectBtn}
+                    </td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -1048,8 +1489,57 @@
 
         function confirmPathSelection() {
             const selectedPath = document.getElementById('selectorPath').value;
+            
             if (targetInputId) {
-                document.getElementById(targetInputId).value = selectedPath;
+                if (isExcludeSelector) {
+                    // Extract just the name or relative path for exclude
+                    // But usually user wants to exclude a folder name or file pattern found in browser.
+                    // The browser returns full path (remote:path/to/folder).
+                    // We need to be careful. Rclone excludes are often relative to the root of the transfer.
+                    // Let's grab the last part of the path or let the user decide.
+                    // Simpler: Just append the full selected path, but stripping the remote part if possible?
+                    // Actually, Excludes are patterns. If I select "drive:backup/temp", I probably want to exclude "temp/**" or "/temp/**"
+                    
+                    // Let's strip the remote prefix if present to make it cleaner
+                    let excludePattern = selectedPath;
+                    
+                    // Logic to strip the source root from the path to make it relative for filter
+                    const sourceVal = document.getElementById('jobSource').value;
+                    
+                    // If sourceVal is something like "RNAZ:ssd/s" and selectedPath is "RNAZ:ssd/s/dexie.js"
+                    // We want "/dexie.js"
+                    
+                    if (sourceVal && selectedPath.startsWith(sourceVal)) {
+                        // Check if it's an exact match or followed by slash
+                        if (selectedPath.length > sourceVal.length) {
+                             // Get the part after the source path
+                             let relativePath = selectedPath.substring(sourceVal.length);
+                             // Ensure it starts with /
+                             if (!relativePath.startsWith('/')) relativePath = '/' + relativePath;
+                             excludePattern = relativePath;
+                        } else if (selectedPath === sourceVal) {
+                             // Trying to exclude the root itself? That's weird.
+                             excludePattern = "/"; 
+                        }
+                    } else {
+                        // Fallback: strip remote name if we can't match against source
+                        const colonIdx = selectedPath.indexOf(':');
+                        if (colonIdx !== -1) {
+                             excludePattern = selectedPath.substring(colonIdx + 1);
+                        }
+                    }
+                    
+                    // Ensure it starts with / to anchor to root of transfer
+                    if (!excludePattern.startsWith('/')) excludePattern = '/' + excludePattern;
+                    
+                    const textArea = document.getElementById(targetInputId);
+                    const currentVal = textArea.value;
+                    const newVal = currentVal ? currentVal + '\n' + excludePattern : excludePattern;
+                    textArea.value = newVal;
+                    
+                } else {
+                    document.getElementById(targetInputId).value = selectedPath;
+                }
             }
             closePathSelector();
         }
@@ -1058,28 +1548,32 @@
         // --- ACTIONS ---
         function updateRunState(isRunning) {
              const btnRun = document.getElementById('btnRunNow');
+             const btnCheck = document.getElementById('btnCheckJob');
              const btnStop = document.getElementById('btnStopJob');
              
              if (isRunning) {
                  btnRun.classList.add('hidden');
+                 btnCheck.classList.add('hidden');
                  btnStop.classList.remove('hidden');
              } else {
                  btnRun.classList.remove('hidden');
+                 btnCheck.classList.remove('hidden');
                  btnStop.classList.add('hidden');
              }
         }
 
-        async function startJob(jobId) {
+        async function startJob(jobId, isCheck = false) {
             const job = jobs.find(j => j.id === jobId);
             if (!job) return;
 
             const uiStatus = document.getElementById('statStatus');
             if (uiStatus) {
-                uiStatus.innerText = "Bezig met starten...";
+                uiStatus.innerText = isCheck ? "Bezig met verifiëren..." : "Bezig met starten...";
                 uiStatus.className = "text-xl font-bold mt-1 text-yellow-400";
             }
 
             if (job.type === 'mount') {
+                // Mount doesn't support check or excludes in this UI context easily
                 const res = await rcloneRequest('mount/mount', { fs: job.source, mountPoint: job.dest });
                 if (res) {
                     if (uiStatus) {
@@ -1096,23 +1590,47 @@
                 return;
             }
 
-            // Backup Job
+            // Backup Job or Check
             // Reset stats first to ensure clean monitoring for the new job
             await rcloneRequest('core/stats-reset');
 
-            const res = await rcloneRequest('sync/copy', { 
+            const params = { 
                 srcFs: job.source, 
                 dstFs: job.dest, 
-                _async: true, 
-                _stats: true 
-            });
+                _async: true
+            };
+
+            // Add Excludes via _filter
+            if (job.excludes && job.excludes.length > 0) {
+                // Normalize excludes to be relative to srcFs as rclone expects
+                const normalizedExcludes = job.excludes.map(pattern => {
+                    let p = pattern;
+                    // If pattern starts with the srcFs, strip it
+                    if (p.startsWith(job.source)) {
+                        p = p.substring(job.source.length);
+                    }
+                    // Ensure it starts with / to anchor to the root of the transfer
+                    if (!p.startsWith('/')) p = '/' + p;
+                    return p;
+                });
+                params._filter = { 'ExcludeRule': normalizedExcludes };
+            }
+            
+            // For Sync/Copy we want stats
+            if (!isCheck) {
+                 params._stats = true;
+            }
+
+            const endpoint = isCheck ? 'operations/check' : 'sync/copy';
+            
+            const res = await rcloneRequest(endpoint, params);
             
             if (res && res.jobid) {
                 activeRcloneJobId = res.jobid; // Set global active ID
                 updateRunState(true);
-                monitorJob(jobId, res.jobid);
+                monitorJob(jobId, res.jobid, isCheck ? 'check' : 'sync');
             } else {
-                alert("Kon job niet starten. Controleer rclone verbinding.");
+                alert("Kon taak niet starten. Controleer rclone verbinding.");
                 if (uiStatus) {
                     uiStatus.innerText = "Fout";
                     uiStatus.className = "text-xl font-bold mt-1 text-red-400";
@@ -1129,7 +1647,7 @@
             }
         }
 
-        function monitorJob(internalJobId, rcloneJobId) {
+        function monitorJob(internalJobId, rcloneJobId, type = 'sync') {
             clearInterval(monitoringInterval);
             let speedSamples = []; // Store speed samples for the chart
 
@@ -1138,11 +1656,13 @@
                 const statsRes = await rcloneRequest('core/stats'); 
                 
                 if (activeJobId === internalJobId && statsRes) {
-                    // Collect sample
-                    speedSamples.push({
-                        t: Date.now(),
-                        s: statsRes.speed // bytes per second
-                    });
+                    // Collect sample (only for sync)
+                    if (type === 'sync') {
+                        speedSamples.push({
+                            t: Date.now(),
+                            s: statsRes.speed // bytes per second
+                        });
+                    }
 
                     const uiBytes = document.getElementById('statBytes');
                     const uiSpeed = document.getElementById('statSpeed');
@@ -1156,11 +1676,13 @@
                     const transferTable = document.getElementById('transferTableBody');
                     const activeTransfersSection = document.getElementById('activeTransfersSection');
 
+                    // If checking, stats might be different or less relevant during run
                     if (uiBytes) uiBytes.innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
                     if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
                     if (uiFiles) uiFiles.innerText = `${statsRes.transfers} / ${statsRes.checks}`;
                     if (uiSkipped) uiSkipped.innerText = `${statsRes.deletes + (statsRes.checks - statsRes.transfers)} overgeslagen`;
-                    if (uiStatus) uiStatus.innerText = "In uitvoering...";
+                    
+                    if (uiStatus) uiStatus.innerText = type === 'check' ? "Verifiëren..." : "In uitvoering...";
                     
                     if (uiTime) uiTime.innerText = statsRes.elapsedTime.toFixed(0) + "s";
                     if (uiErrors) {
@@ -1171,7 +1693,7 @@
                     if (uiEta) uiEta.innerText = statsRes.eta ? "ETA: " + statsRes.eta.toFixed(0) + "s" : "ETA: -";
 
                     // Handle Active Transfers
-                    if (statsRes.transferring && statsRes.transferring.length > 0) {
+                    if (type === 'sync' && statsRes.transferring && statsRes.transferring.length > 0) {
                         activeTransfersSection.classList.remove('hidden');
                         transferTable.innerHTML = '';
                         statsRes.transferring.forEach(t => {
@@ -1208,16 +1730,22 @@
                     updateRunState(false);
                     
                     const success = statusRes.success;
+                    
+                    // For Check, statusRes.output contains the diff stats
+                    const checkResult = type === 'check' ? statusRes.output : null;
+
                     const log = {
                         date: new Date().toLocaleString(),
                         duration: statsRes ? statsRes.elapsedTime.toFixed(1) + 's' : '?',
-                        status: success ? 'Succes' : 'Fout',
+                        status: success ? (type === 'check' ? 'Gecheckt' : 'Succes') : 'Fout',
                         size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?',
                         speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
                         files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
                         skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0,
                         errors: statsRes ? statsRes.errors : 0,
-                        speedSamples: speedSamples // Save samples
+                        type: type,
+                        speedSamples: speedSamples,
+                        checkResult: checkResult
                     };
                     addLog(internalJobId, log);
                     
@@ -1227,10 +1755,6 @@
                         if (activeTransfersSection) activeTransfersSection.classList.add('hidden');
 
                         if (uiStatus) {
-                            // Reset status display instead of showing last result permanently in "Active" area
-                            // The user requested that the status remains empty if no job runs.
-                            // However, strictly speaking, we might want to show "Voltooid" briefly or just clear it.
-                            // User said: "blijft leeg als er geen job draait".
                             uiStatus.innerText = "-";
                             uiStatus.className = "text-xl font-bold mt-1";
                             document.getElementById('statBytes').innerText = "0 MB";
@@ -1299,6 +1823,7 @@
             document.getElementById('jobSchedule').value = job.schedule || '';
             document.getElementById('jobSource').value = job.source;
             document.getElementById('jobDest').value = job.dest;
+            document.getElementById('jobExcludes').value = job.excludes ? job.excludes.join('\n') : '';
             document.getElementById('modalTitle').innerText = "Taak Bewerken";
             document.getElementById('btnDeleteInModal').classList.remove('hidden');
             document.getElementById('jobModal').classList.remove('hidden');
@@ -1328,6 +1853,7 @@
             const schedule = document.getElementById('jobSchedule').value;
             const source = document.getElementById('jobSource').value;
             const dest = document.getElementById('jobDest').value;
+            const excludes = document.getElementById('jobExcludes').value.split('\n').map(l => l.trim()).filter(l => l);
 
             let jobToSave;
             
@@ -1336,7 +1862,7 @@
                 if (jobIndex > -1) {
                     jobToSave = {
                         ...jobs[jobIndex],
-                        name, type, schedule, source, dest
+                        name, type, schedule, source, dest, excludes
                     };
                 }
             }
@@ -1345,7 +1871,7 @@
                  // New job
                  jobToSave = {
                     id: Date.now().toString(), // Temp ID, will be replaced/augmented by _id
-                    name, type, schedule, source, dest,
+                    name, type, schedule, source, dest, excludes,
                     history: []
                  };
             }
