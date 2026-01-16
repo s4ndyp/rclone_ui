@@ -780,16 +780,26 @@
             document.getElementById('remoteStatError').classList.add('hidden');
 
             const about = await rcloneRequest('operations/about', { fs: name + ':' });
+            const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+
             if (about) {
-                const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
                 document.getElementById('remoteStatTotal').innerText = about.total ? fmt(about.total) : '-';
                 document.getElementById('remoteStatUsed').innerText = about.used ? fmt(about.used) : '-';
                 document.getElementById('remoteStatFree').innerText = about.free ? fmt(about.free) : '-';
             } else {
-                document.getElementById('remoteStatTotal').innerText = '-';
-                document.getElementById('remoteStatUsed').innerText = '-';
-                document.getElementById('remoteStatFree').innerText = '-';
-                document.getElementById('remoteStatError').classList.remove('hidden');
+                // Fallback for remotes that don't support 'about' (like SMB sometimes)
+                // Try operations/size to at least get used bytes and file count
+                const size = await rcloneRequest('operations/size', { fs: name + ':' });
+                if (size) {
+                    document.getElementById('remoteStatTotal').innerText = '-';
+                    document.getElementById('remoteStatUsed').innerText = size.bytes ? `${fmt(size.bytes)} (${size.count} bestanden)` : '-';
+                    document.getElementById('remoteStatFree').innerText = '-';
+                } else {
+                    document.getElementById('remoteStatTotal').innerText = '-';
+                    document.getElementById('remoteStatUsed').innerText = '-';
+                    document.getElementById('remoteStatFree').innerText = '-';
+                    document.getElementById('remoteStatError').classList.remove('hidden');
+                }
             }
         }
 
