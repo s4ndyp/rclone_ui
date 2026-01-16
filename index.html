@@ -1578,12 +1578,14 @@
                     return null;
                 }
 
-                // Parse schedule time
+                // Parse schedule time (this is backend time from database)
                 const [hours, minutes] = scheduleTime.split(':').map(Number);
                 if (isNaN(hours) || isNaN(minutes)) return null;
 
+                // Use backend time for calculations (adjust frontend time by offset)
                 const now = new Date();
-                const currentDay = now.getDay() === 0 ? 7 : now.getDay(); // Convert to 1-7 format (Monday = 1, Sunday = 7)
+                const backendNow = new Date(now.getTime() + (backendTimezoneOffset * 60 * 60 * 1000));
+                const currentDay = backendNow.getDay() === 0 ? 7 : backendNow.getDay(); // Convert to 1-7 format (Monday = 1, Sunday = 7)
 
                 // Find next scheduled day
                 let daysToAdd = 0;
@@ -1600,17 +1602,20 @@
 
                 if (!found) return null;
 
-                const scheduledDate = new Date(now);
+                const scheduledDate = new Date(backendNow);
                 scheduledDate.setDate(scheduledDate.getDate() + daysToAdd);
                 scheduledDate.setHours(hours, minutes, 0, 0);
 
                 // If scheduled time has passed today and it's the same day, move to next occurrence
-                if (daysToAdd === 0 && scheduledDate <= now) {
+                if (daysToAdd === 0 && scheduledDate <= backendNow) {
                     // Find next occurrence (same day next week)
                     scheduledDate.setDate(scheduledDate.getDate() + 7);
                 }
 
-                return scheduledDate.toLocaleDateString('nl-NL', {
+                // Convert back to frontend time for display
+                const frontendScheduledDate = new Date(scheduledDate.getTime() - (backendTimezoneOffset * 60 * 60 * 1000));
+
+                return frontendScheduledDate.toLocaleDateString('nl-NL', {
                     day: '2-digit',
                     month: '2-digit',
                     hour: '2-digit',
@@ -2372,8 +2377,8 @@
                     scheduleTime = job.schedule;
                     scheduleDays = [1, 2, 3, 4, 5]; // Default Monday-Friday
                 } else if (typeof job.schedule === 'object') {
-                    // New format: { time, days }
-                    scheduleTime = job.schedule.time || '';
+                    // New format: { time, days } - convert backend time to frontend time for display
+                    scheduleTime = convertBackendTimeToFrontend(job.schedule.time || '00:00');
                     scheduleDays = job.schedule.days || [];
                 }
             }
@@ -2407,9 +2412,73 @@
             });
             const timeElement = document.getElementById('currentTime');
             if (timeElement) {
-                timeElement.textContent = timeString;
+                const offsetText = backendTimezoneOffset !== 0 ? ` (${backendTimezoneOffset >= 0 ? '+' : ''}${backendTimezoneOffset}h)` : '';
+                timeElement.textContent = timeString + offsetText;
+                timeElement.title = `Lokale tijd • Backend offset: ${backendTimezoneOffset >= 0 ? '+' : ''}${backendTimezoneOffset} uur`;
             }
         }
+
+        function convertFrontendTimeToBackend(frontendTime) {
+            // Parse HH:MM format
+            const [hours, minutes] = frontendTime.split(':').map(Number);
+
+            // Create a date object for today with the frontend time
+            const frontendDate = new Date();
+            frontendDate.setHours(hours, minutes, 0, 0);
+
+            // Add the timezone offset to get backend time
+            const backendDate = new Date(frontendDate.getTime() + (backendTimezoneOffset * 60 * 60 * 1000));
+
+            // Return in HH:MM format
+            const backendHours = backendDate.getHours().toString().padStart(2, '0');
+            const backendMinutes = backendDate.getMinutes().toString().padStart(2, '0');
+
+            return `${backendHours}:${backendMinutes}`;
+        }
+
+        function convertBackendTimeToFrontend(backendTime) {
+            // Parse HH:MM format
+            const [hours, minutes] = backendTime.split(':').map(Number);
+
+            // Create a date object for today with the backend time
+            const backendDate = new Date();
+            backendDate.setHours(hours, minutes, 0, 0);
+
+            // Subtract the timezone offset to get frontend time
+            const frontendDate = new Date(backendDate.getTime() - (backendTimezoneOffset * 60 * 60 * 1000));
+
+            // Return in HH:MM format
+            const frontendHours = frontendDate.getHours().toString().padStart(2, '0');
+            const frontendMinutes = frontendDate.getMinutes().toString().padStart(2, '0');
+
+            return `${frontendHours}:${frontendMinutes}`;
+        }
+
+        async function initializeTimezoneOffset() {
+            try {
+                const response = await fetch('/api/scheduler_status');
+                if (response.ok) {
+                    const status = await response.json();
+                    const now = new Date();
+                    const backendTimeParts = status.current_time.split(':');
+                    const backendDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(),
+                                               parseInt(backendTimeParts[0]), parseInt(backendTimeParts[1]), parseInt(backendTimeParts[2]));
+
+                    // Calculate difference in hours
+                    const timeDiff = (backendDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+                    backendTimezoneOffset = Math.round(timeDiff);
+
+                    console.log(`Timezone offset initialized: ${backendTimezoneOffset} hours (Backend: ${status.timezone})`);
+                }
+            } catch (error) {
+                console.warn('Could not initialize timezone offset:', error);
+                // Default to 0 offset if we can't determine it
+                backendTimezoneOffset = 0;
+            }
+        }
+
+        // Global variable to store timezone offset
+        let backendTimezoneOffset = 0; // Hours difference between frontend and backend
 
         async function checkSchedulerStatus() {
             try {
@@ -2443,14 +2512,24 @@ Then refresh this page.`);
                 const status = await response.json();
                 console.log('Scheduler Status:', status);
 
+                // Calculate timezone offset between frontend and backend
+                const now = new Date();
+                const backendTimeParts = status.current_time.split(':');
+                const backendDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(),
+                                           parseInt(backendTimeParts[0]), parseInt(backendTimeParts[1]), parseInt(backendTimeParts[2]));
+
+                // Calculate difference in hours
+                const timeDiff = (backendDate.getTime() - now.getTime()) / (1000 * 60 * 60);
+                backendTimezoneOffset = Math.round(timeDiff);
+
                 // Show current backend time vs frontend time
-                const frontendTime = new Date().toLocaleTimeString('nl-NL', {
+                const frontendTime = now.toLocaleTimeString('nl-NL', {
                     hour: '2-digit',
                     minute: '2-digit',
                     second: '2-digit'
                 });
 
-                const frontendDay = new Date().getDay() === 0 ? 7 : new Date().getDay();
+                const frontendDay = now.getDay() === 0 ? 7 : now.getDay();
 
                 const jobList = status.jobs.map(j => `📋 ${j.name || 'unnamed'}
    Type: ${j.type || 'unknown'}
@@ -2461,7 +2540,8 @@ Then refresh this page.`);
 
 🕐 Backend Time: ${status.current_time} (Day: ${status.current_day})
 🕐 Frontend Time: ${frontendTime} (Day: ${frontendDay})
-🌍 Timezone: ${status.timezone || 'unknown'}
+🌍 Backend Timezone: ${status.timezone || 'UTC'}
+⚖️ Timezone Offset: ${backendTimezoneOffset >= 0 ? '+' : ''}${backendTimezoneOffset} hours
 
 📊 Jobs Found: ${status.jobs_count}
 
@@ -2548,14 +2628,17 @@ Try restarting the Python server.`);
             const dest = document.getElementById('jobDest').value;
             const excludes = document.getElementById('jobExcludes').value.split('\n').map(l => l.trim()).filter(l => l);
 
-            // Build schedule object
+            // Build schedule object with timezone correction
             let schedule = null;
             if (scheduleTime) {
+                // Convert frontend time to backend time
+                const backendTime = convertFrontendTimeToBackend(scheduleTime);
                 const days = scheduleDaysStr ? scheduleDaysStr.split(',').map(d => parseInt(d)) : [1, 2, 3, 4, 5];
                 schedule = {
-                    time: scheduleTime,
+                    time: backendTime,
                     days: days
                 };
+                console.log(`Schedule conversion: Frontend ${scheduleTime} → Backend ${backendTime} (offset: ${backendTimezoneOffset}h)`);
                 console.log('Saving job with schedule:', schedule);
             }
 
@@ -2612,6 +2695,8 @@ Try restarting the Python server.`);
         // Start time update
         updateCurrentTime();
         setInterval(updateCurrentTime, 1000);
+        // Initialize timezone offset
+        initializeTimezoneOffset();
         // Initial connection check
         rcloneRequest('core/version').then(res => updateStatus(!!res));
     </script>
