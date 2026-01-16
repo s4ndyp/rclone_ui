@@ -566,11 +566,6 @@
                 remoteStats[name] = statsObj;
                 renderSidebar();
                 
-                // If this is the active remote, update chart
-                if (activeRemoteName === name) {
-                    renderRemoteHistoryChart(name);
-                }
-                
                 return statsObj;
             }
             return null;
