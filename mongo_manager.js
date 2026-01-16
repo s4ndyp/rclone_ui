@@ -26,6 +26,17 @@ class DataGateway {
         return await response.json();
     }
 
+    async getDocument(name, id) {
+        const response = await fetch(this._getUrl(name, id), {
+            headers: { 'x-client-id': this.clientId }
+        });
+        if (!response.ok) {
+            if (response.status === 404) return null;
+            throw new Error(`Server error: ${response.status}`);
+        }
+        return await response.json();
+    }
+
     async saveDocument(name, data) {
         let method = data._id ? 'PUT' : 'POST';
         let url = this._getUrl(name, data._id);
@@ -105,6 +116,10 @@ class MongoManager {
      */
     async getSmartCollection(collectionName) {
         return await this.gateway.getCollection(collectionName);
+    }
+
+    async getSmartDocument(collectionName, id) {
+        return await this.gateway.getDocument(collectionName, id);
     }
 
     /**

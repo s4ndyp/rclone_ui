@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rclone Manager - Backup & Mount v1.1</title>
+    <title>Rclone Manager - Backup & Mount</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -272,8 +272,9 @@
     <!-- Remote Modal -->
     <div id="remoteModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
         <div class="bg-darkcard p-8 rounded-2xl w-full max-w-lg border border-darkborder shadow-2xl">
-            <h3 class="text-2xl font-bold mb-6">Nieuwe SMB/CIFS Remote</h3>
+            <h3 id="remoteModalTitle" class="text-2xl font-bold mb-6">Nieuwe SMB/CIFS Remote</h3>
             <form id="remoteForm" class="space-y-4">
+                <input type="hidden" id="editRemoteName" value="">
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Naam (bijv. nas_source)</label>
                     <input type="text" id="remoteName" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-purple-500 outline-none" placeholder="nas_share" required>
@@ -500,11 +501,11 @@
                 // Fetch latest remote stats
                 const allStats = await manager.getSmartCollection('remstats');
                 if (Array.isArray(allStats)) {
-                    // Group by remote and find latest for each
                     remoteStats = {};
-                    allStats.forEach(s => {
-                        if (!remoteStats[s.remote] || new Date(s.date) > new Date(remoteStats[s.remote].date)) {
-                            remoteStats[s.remote] = s;
+                    allStats.forEach(doc => {
+                        // Support new structure (individual history per remote)
+                        if (doc.history && Array.isArray(doc.history)) {
+                            remoteStats[doc.remote || doc._id] = doc;
                         }
                     });
                 }
@@ -537,38 +538,119 @@
             for (const name in configuredRemotes) {
                 await updateRemoteStats(name);
             }
+
+            // Also update task remstats for all jobs
+            for (const job of jobs) {
+                if (job.source) {
+                    await updateTaskRemStats(job.id, job.source);
+                }
+                if (job.dest) {
+                    await updateTaskRemStats(job.id, job.dest);
+                }
+            }
         }
 
         async function updateRemoteStats(name) {
             console.log(`Updating stats for ${name}...`);
-            
+
             // Try operations/about first for disk info
             const about = await rcloneRequest('operations/about', { fs: name + ':' });
             // Then operations/size for file count and accurate usage
             const size = await rcloneRequest('operations/size', { fs: name + ':' });
-            
+
             if (size || about) {
                 const today = new Date().toISOString().split('T')[0];
-                const statsObj = {
-                    remote: name,
+                const newEntry = {
                     date: today,
                     size: size ? size.bytes : (about ? about.used : 0),
                     count: size ? size.count : 0,
                     total: about ? about.total : null,
-                    free: about ? about.free : null,
-                    _id: `${name}_${today}` // Use _id to allow updates if already exists for today
+                    free: about ? about.free : null
                 };
-                
+
+                // Fetch existing record or create new
+                let record = await manager.getSmartDocument('remstats', name);
+                if (!record) {
+                    record = {
+                        _id: name,
+                        remote: name,
+                        history: []
+                    };
+                }
+
+                if (!record.history) record.history = [];
+
+                // Remove today's entry if exists (overwrite)
+                record.history = record.history.filter(h => h.date !== today);
+                record.history.push(newEntry);
+                record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
                 // Save to Mongo
-                await manager.saveSmartDocument('remstats', statsObj);
-                
+                await manager.saveSmartDocument('remstats', record);
+
                 // Update local state
-                remoteStats[name] = statsObj;
+                remoteStats[name] = record;
                 renderSidebar();
-                
-                return statsObj;
+
+                // Refresh detail view if open
+                if (activeRemoteName === name) {
+                    selectRemote(name);
+                }
+
+                return record;
             }
             return null;
+        }
+
+        async function updateTaskRemStats(jobId, path) {
+            console.log(`Updating task remstats for ${jobId} at ${path}...`);
+
+            try {
+                const size = await rcloneRequest('operations/size', { fs: path });
+
+                if (size) {
+                    const today = new Date().toISOString().split('T')[0];
+                    const newEntry = {
+                        date: today,
+                        size: size.bytes,
+                        count: size.count
+                    };
+
+                    // Create unique ID for this task-path combination
+                    const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+
+                    // Fetch existing record or create new
+                    let record = await manager.getSmartDocument('taskremstats', statsId);
+                    if (!record) {
+                        record = {
+                            _id: statsId,
+                            jobId: jobId,
+                            path: path,
+                            history: []
+                        };
+                    }
+
+                    if (!record.history) record.history = [];
+
+                    // Remove today's entry if exists (overwrite)
+                    record.history = record.history.filter(h => h.date !== today);
+                    record.history.push(newEntry);
+                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    // Save to Mongo
+                    await manager.saveSmartDocument('taskremstats', record);
+
+                    return record;
+                }
+            } catch (e) {
+                console.warn(`Failed to get size for ${path}:`, e);
+            }
+            return null;
+        }
+
+        async function getTaskRemStats(jobId, path) {
+            const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            return await manager.getSmartDocument('taskremstats', statsId);
         }
 
         async function handleUpdateRemoteStats(event, btn, name) {
@@ -803,6 +885,7 @@
             document.getElementById('remoteDetailTitle').innerText = name;
             document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
 
+
             // Render linked jobs with individual charts
             const linkedJobsEl = document.getElementById('remoteLinkedJobsWithCharts');
             const linkedJobs = jobs.filter(j =>
@@ -814,7 +897,7 @@
                 linkedJobsEl.innerHTML = '';
                 linkedJobs.forEach(async (job, index) => {
                     const jobDiv = document.createElement('div');
-                    jobDiv.className = "border border-darkborder rounded-lg overflow-hidden";
+                    jobDiv.className = "border border-darkborder rounded-lg overflow-hidden mb-4";
 
                     // Job header
                     const headerDiv = document.createElement('div');
@@ -826,24 +909,54 @@
                     headerDiv.innerHTML = `
                         <div>
                             <div class="font-bold text-white">${job.name}</div>
-                            <div class="text-xs text-gray-400 font-mono">${job.source || job.dest}</div>
+                            <div class="text-xs text-gray-400 font-mono">${job.source} → ${job.dest}</div>
                         </div>
                         <i class="fa-solid fa-arrow-right text-gray-600"></i>
                     `;
 
-                    // Chart container
-                    const chartDiv = document.createElement('div');
-                    chartDiv.className = "p-4 h-48 relative";
-                    const canvas = document.createElement('canvas');
-                    canvas.id = `jobChart-${job.id}`;
-                    chartDiv.appendChild(canvas);
-
                     jobDiv.appendChild(headerDiv);
-                    jobDiv.appendChild(chartDiv);
-                    linkedJobsEl.appendChild(jobDiv);
 
-                    // Render individual job chart
-                    await renderJobChart(job, canvas.id);
+                    // Source path remstats
+                    if (job.source && job.source.startsWith(name + ':')) {
+                        const sourceStatsDiv = document.createElement('div');
+                        sourceStatsDiv.className = "p-4 border-b border-darkborder";
+                        sourceStatsDiv.innerHTML = `
+                            <h5 class="font-semibold text-gray-300 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-folder text-green-400"></i> Source: ${job.source}
+                            </h5>
+                            <div class="h-48 relative">
+                                <canvas id="taskRemStats-${job.id}-source"></canvas>
+                            </div>
+                        `;
+                        jobDiv.appendChild(sourceStatsDiv);
+
+                        // Update and render source stats
+                        await updateTaskRemStats(job.id, job.source);
+                        const sourceStats = await getTaskRemStats(job.id, job.source);
+                        await renderTaskRemStatsChart(sourceStats, `taskRemStats-${job.id}-source`);
+                    }
+
+                    // Destination path remstats
+                    if (job.dest && job.dest.startsWith(name + ':')) {
+                        const destStatsDiv = document.createElement('div');
+                        destStatsDiv.className = "p-4";
+                        destStatsDiv.innerHTML = `
+                            <h5 class="font-semibold text-gray-300 mb-2 flex items-center gap-2">
+                                <i class="fa-solid fa-folder text-blue-400"></i> Destination: ${job.dest}
+                            </h5>
+                            <div class="h-48 relative">
+                                <canvas id="taskRemStats-${job.id}-dest"></canvas>
+                            </div>
+                        `;
+                        jobDiv.appendChild(destStatsDiv);
+
+                        // Update and render destination stats
+                        await updateTaskRemStats(job.id, job.dest);
+                        const destStats = await getTaskRemStats(job.id, job.dest);
+                        await renderTaskRemStatsChart(destStats, `taskRemStats-${job.id}-dest`);
+                    }
+
+                    linkedJobsEl.appendChild(jobDiv);
                 });
             } else {
                 linkedJobsEl.innerHTML = '<div class="text-center py-8 text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
@@ -854,6 +967,215 @@
                 browsePath(name + ':');
             };
             document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
+        }
+
+        let remoteCharts = {};
+
+        async function renderRemoteChart(remoteName, canvasId) {
+            try {
+                const record = remoteStats[remoteName];
+                if (!record || !record.history || record.history.length === 0) {
+                     const ctx = document.getElementById(canvasId).getContext('2d');
+                     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                     ctx.font = '14px Arial';
+                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                     ctx.textAlign = 'center';
+                     ctx.fillText('Nog geen geschiedenis beschikbaar', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                     return;
+                }
+
+                const labels = record.history.map(h => h.date);
+                const sizeData = record.history.map(h => {
+                    const gb = h.size / 1024 / 1024 / 1024;
+                    // Check if mostly TB
+                    return gb; 
+                });
+                // Check if we should use TB or GB for axis
+                const maxGb = Math.max(...sizeData);
+                const useTb = maxGb >= 1000;
+                
+                const displayData = sizeData.map(gb => useTb ? gb / 1024 : gb);
+                const sizeUnit = useTb ? 'TB' : 'GB';
+
+                const countData = record.history.map(h => h.count);
+
+                if (remoteCharts[canvasId]) {
+                    remoteCharts[canvasId].destroy();
+                }
+
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                remoteCharts[canvasId] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: `Grootte (${sizeUnit})`,
+                                data: displayData,
+                                backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                                borderColor: 'rgba(168, 85, 247, 1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'y',
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                borderColor: 'rgba(74, 222, 128, 1)',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                borderWidth: 2,
+                                tension: 0.3,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: true, labels: { color: '#9ca3af' } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.dataset.yAxisID === 'y') {
+                                            return context.parsed.y.toFixed(2) + ' ' + sizeUnit;
+                                        }
+                                        return context.parsed.y + ' bestanden';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#a855f7', callback: (val) => val.toFixed(1) + ' ' + sizeUnit }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                ticks: { color: '#4ade80' }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Remote chart error:", e);
+            }
+        }
+
+        let taskRemStatsCharts = {}; // Store task remstats charts
+
+        async function renderTaskRemStatsChart(record, canvasId) {
+            try {
+                if (!record || !record.history || record.history.length === 0) {
+                    const ctx = document.getElementById(canvasId).getContext('2d');
+                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                    ctx.font = '14px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Nog geen remstats beschikbaar', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                    return;
+                }
+
+                const labels = record.history.map(h => h.date);
+                const sizeData = record.history.map(h => {
+                    const gb = h.size / 1024 / 1024 / 1024;
+                    return gb;
+                });
+                const countData = record.history.map(h => h.count);
+
+                // Destroy existing chart if it exists
+                if (taskRemStatsCharts[canvasId]) {
+                    taskRemStatsCharts[canvasId].destroy();
+                }
+
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                taskRemStatsCharts[canvasId] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Grootte (GB)',
+                                data: sizeData,
+                                backgroundColor: 'rgba(34, 197, 94, 0.2)',
+                                borderColor: 'rgba(34, 197, 94, 1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'y',
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                borderWidth: 2,
+                                tension: 0.3,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: true, labels: { color: '#9ca3af' } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.dataset.yAxisID === 'y') {
+                                            return context.parsed.y.toFixed(2) + ' GB';
+                                        }
+                                        return context.parsed.y + ' bestanden';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#22c55e', callback: (val) => val.toFixed(1) + ' GB' }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                ticks: { color: '#3b82f6' }
+                            }
+                        }
+                    }
+                });
+
+            } catch (e) {
+                console.error("Task remstats chart error:", e);
+            }
         }
 
         let jobCharts = {}; // Store individual job charts
@@ -961,8 +1283,37 @@
         }
 
 
-        function openAddRemoteModal() { document.getElementById('remoteModal').classList.remove('hidden'); }
-        function closeRemoteModal() { document.getElementById('remoteModal').classList.add('hidden'); }
+        function openAddRemoteModal() {
+            document.getElementById('remoteForm').reset();
+            document.getElementById('remoteName').readOnly = false;
+            document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
+            document.getElementById('remoteModalTitle').innerText = 'Nieuwe SMB/CIFS Remote';
+            document.getElementById('editRemoteName').value = '';
+            document.getElementById('remoteModal').classList.remove('hidden');
+        }
+
+        function editRemote(name) {
+            const config = configuredRemotes[name];
+            if (!config) return;
+
+            document.getElementById('remoteName').value = name;
+            document.getElementById('remoteName').readOnly = true;
+            document.getElementById('remoteName').classList.add('bg-gray-800', 'cursor-not-allowed');
+            document.getElementById('remoteHost').value = config.parameters?.host || '';
+            document.getElementById('remoteUser').value = config.parameters?.user || '';
+            document.getElementById('remotePass').value = config.parameters?.pass || '';
+
+            document.getElementById('remoteModalTitle').innerText = `Remote "${name}" Bewerken`;
+            document.getElementById('editRemoteName').value = name;
+            document.getElementById('remoteModal').classList.remove('hidden');
+        }
+
+        function closeRemoteModal() {
+            document.getElementById('remoteModal').classList.add('hidden');
+            // Reset readonly state
+            document.getElementById('remoteName').readOnly = false;
+            document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
+        }
 
         document.getElementById('remoteForm').onsubmit = async (e) => {
             e.preventDefault();
@@ -970,6 +1321,7 @@
             const host = document.getElementById('remoteHost').value;
             const user = document.getElementById('remoteUser').value;
             const pass = document.getElementById('remotePass').value;
+            const editName = document.getElementById('editRemoteName').value;
 
             // Rclone config/create expects 'parameters' for the specific type
             const params = {
@@ -982,13 +1334,42 @@
                 }
             };
 
-            const res = await rcloneRequest('config/create', params);
-            if (res) {
-                alert('Remote succesvol aangemaakt!');
-                closeRemoteModal();
-                loadRemotes();
-            } else {
-                alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
+            try {
+                if (editName && editName !== name) {
+                    // Naam is gewijzigd - eerst oude verwijderen, dan nieuwe aanmaken
+                    await rcloneRequest('config/delete', { name: editName });
+                    const res = await rcloneRequest('config/create', params);
+                    if (res) {
+                        alert('Remote succesvol bijgewerkt!');
+                        closeRemoteModal();
+                        loadRemotes();
+                    } else {
+                        alert('Fout bij het bijwerken van de remote. Controleer de gegevens.');
+                    }
+                } else if (editName) {
+                    // Alleen parameters wijzigen - eerst verwijderen, dan opnieuw aanmaken
+                    await rcloneRequest('config/delete', { name: editName });
+                    const res = await rcloneRequest('config/create', params);
+                    if (res) {
+                        alert('Remote succesvol bijgewerkt!');
+                        closeRemoteModal();
+                        loadRemotes();
+                    } else {
+                        alert('Fout bij het bijwerken van de remote. Controleer de gegevens.');
+                    }
+                } else {
+                    // Nieuwe remote aanmaken
+                    const res = await rcloneRequest('config/create', params);
+                    if (res) {
+                        alert('Remote succesvol aangemaakt!');
+                        closeRemoteModal();
+                        loadRemotes();
+                    } else {
+                        alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
+                    }
+                }
+            } catch (error) {
+                alert('Fout bij het opslaan van de remote: ' + error.message);
             }
         };
 
@@ -1040,7 +1421,11 @@
                         ${host ? `<div class="text-lg font-mono text-cyan-400 truncate font-bold">${host}</div>` : '<div class="text-sm text-gray-500 italic">Geen IP adres</div>'}
 
                         <div class="flex gap-2">
-                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')" 
+                             <button onclick="event.stopPropagation(); editRemote('${name}')"
+                                     class="bg-orange-900/30 hover:bg-orange-600 text-orange-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-orange-800/30 uppercase">
+                                <i class="fa-solid fa-edit"></i> WIJZIG
+                            </button>
+                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')"
                                      class="flex-1 bg-blue-900/30 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30 uppercase">
                                 <i class="fa-solid fa-calculator"></i> BEREKEN
                             </button>
