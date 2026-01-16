@@ -108,6 +108,9 @@
                             </div>
                         </div>
                         <div class="flex gap-2">
+                             <button id="btnCheckJob" class="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded flex items-center gap-2" title="Verifieer data integriteit">
+                                <i class="fa-solid fa-check-double"></i> Check
+                            </button>
                             <button id="btnRunNow" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded flex items-center gap-2">
                                 <i class="fa-solid fa-play"></i> Start
                             </button>
@@ -269,6 +272,13 @@
                         <div id="remoteStatError" class="hidden bg-yellow-900/20 text-yellow-200 p-4 rounded border border-yellow-800/50 text-sm">
                             <i class="fa-solid fa-info-circle mr-2"></i> Deze remote ondersteunt geen opslagstatistieken of is niet bereikbaar.
                         </div>
+
+                        <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                             <h4 class="font-bold text-white mb-4">Gekoppelde Taken</h4>
+                             <div id="remoteLinkedJobs" class="space-y-2">
+                                 <!-- Linked jobs rendered here -->
+                             </div>
+                        </div>
                         
                         <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
                              <h4 class="font-bold text-white mb-4">Configuratie</h4>
@@ -344,15 +354,21 @@
                         </button>
                     </div>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
-                    <div class="flex gap-2">
-                        <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
-                        <button type="button" onclick="openPathSelector('jobDest')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
-                            <i class="fa-solid fa-folder-tree"></i>
-                        </button>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Destination (Remote:Pad of Mountpunt)</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="jobDest" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono" placeholder="drive:Backups of M:\" required>
+                            <button type="button" onclick="openPathSelector('jobDest')" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition">
+                                <i class="fa-solid fa-folder-tree"></i>
+                            </button>
+                        </div>
                     </div>
-                </div>
+                    
+                    <div>
+                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Excludes (één per regel of wildcard)</label>
+                         <textarea id="jobExcludes" rows="3" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono text-xs" placeholder="*.tmp&#10;System Volume Information/**&#10;.DS_Store"></textarea>
+                         <p class="text-[10px] text-gray-500 mt-1">Gebruik wildcards zoals *.log of map/**</p>
+                    </div>
                 
                 <div class="flex justify-between items-center pt-4">
                     <button type="button" id="btnDeleteInModal" onclick="deleteJobFromModal()" class="hidden bg-red-900/50 hover:bg-red-800 text-red-200 px-6 py-3 rounded-lg font-bold border border-red-800/50 transition">
@@ -720,6 +736,32 @@
             document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
             document.getElementById('remoteConfigDump').innerText = JSON.stringify(remoteConfig, null, 2);
 
+            // Render linked jobs
+            const linkedJobsEl = document.getElementById('remoteLinkedJobs');
+            const linkedJobs = jobs.filter(j => 
+                (j.source && j.source.startsWith(name + ':')) || 
+                (j.dest && j.dest.startsWith(name + ':'))
+            );
+            
+            if (linkedJobs.length > 0) {
+                linkedJobsEl.innerHTML = '';
+                linkedJobs.forEach(job => {
+                    const div = document.createElement('div');
+                    div.className = "p-3 bg-darkbg border border-darkborder rounded hover:border-gray-500 cursor-pointer transition flex justify-between items-center";
+                    div.onclick = () => {
+                         showSection('backups');
+                         selectJob(job.id);
+                    };
+                    div.innerHTML = `
+                        <div class="font-bold text-sm text-gray-300">${job.name}</div>
+                        <i class="fa-solid fa-arrow-right text-gray-600"></i>
+                    `;
+                    linkedJobsEl.appendChild(div);
+                });
+            } else {
+                linkedJobsEl.innerHTML = '<div class="text-sm text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
+            }
+
             document.getElementById('btnBrowseRemote').onclick = () => {
                 showSection('browser');
                 browsePath(name + ':');
@@ -788,7 +830,7 @@
             const list = document.getElementById('jobList');
             list.innerHTML = '';
 
-            // --- REMOTES VIEW ---
+                // --- REMOTES VIEW ---
             if (activeSection === 'remotes') {
                 const remoteNames = Object.keys(configuredRemotes);
                 if (remoteNames.length === 0) {
@@ -798,6 +840,8 @@
                 
                 remoteNames.forEach(name => {
                     const config = configuredRemotes[name];
+                    const host = config.host || (config.parameters && config.parameters.host) || '';
+                    
                     const div = document.createElement('div');
                     div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-2 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
                     div.onclick = () => selectRemote(name);
@@ -809,6 +853,7 @@
                             <div class="min-w-0 flex-1">
                                 <div class="font-bold text-white truncate">${name}</div>
                                 <div class="text-[10px] text-gray-500 truncate uppercase tracking-wider">${config.type}</div>
+                                ${host ? `<div class="text-2xl font-bold text-cyan-400/80 mt-1 truncate">${host}</div>` : ''}
                             </div>
                         </div>
                     `;
@@ -871,6 +916,7 @@
                 'mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400';
 
             document.getElementById('btnRunNow').onclick = () => startJob(id);
+            document.getElementById('btnCheckJob').onclick = () => startJob(id, true);
             document.getElementById('btnStopJob').onclick = () => stopJob(id);
             document.getElementById('btnEditJob').onclick = () => editJob(id);
             document.getElementById('btnDeleteJob').onclick = () => deleteJob(id);
@@ -962,11 +1008,44 @@
             if (isHidden) {
                 detailRow.classList.remove('hidden');
                 icon.style.transform = "rotate(180deg)";
-                renderSpeedChart(index, log.speedSamples);
+                if (log.type === 'check') {
+                    renderCheckResults(index, log);
+                } else {
+                    renderSpeedChart(index, log.speedSamples);
+                }
             } else {
                 detailRow.classList.add('hidden');
                 icon.style.transform = "rotate(0deg)";
             }
+        }
+
+        function renderCheckResults(index, log) {
+             const container = document.getElementById(`chart-${index}`);
+             const res = log.checkResult || {};
+             
+             container.className = "w-full bg-darkcard rounded-lg border border-darkborder p-4 relative overflow-y-auto";
+             container.innerHTML = `
+                 <h5 class="text-xs font-bold text-gray-400 uppercase mb-2">Check Resultaten</h5>
+                 <div class="grid grid-cols-4 gap-4 text-sm mb-4">
+                      <div class="bg-green-900/20 p-2 rounded border border-green-900/30">
+                          <div class="text-xs text-gray-500">Matching</div>
+                          <div class="font-bold text-green-400">${res.match || 0}</div>
+                      </div>
+                      <div class="bg-yellow-900/20 p-2 rounded border border-yellow-900/30">
+                          <div class="text-xs text-gray-500">Difference</div>
+                          <div class="font-bold text-yellow-400">${res.difference || 0}</div>
+                      </div>
+                      <div class="bg-red-900/20 p-2 rounded border border-red-900/30">
+                          <div class="text-xs text-gray-500">Errors</div>
+                          <div class="font-bold text-red-400">${res.error || 0}</div>
+                      </div>
+                      <div class="bg-blue-900/20 p-2 rounded border border-blue-900/30">
+                          <div class="text-xs text-gray-500">Missing</div>
+                          <div class="font-bold text-blue-400">Src: ${res.missingOnSrc || 0} / Dst: ${res.missingOnDst || 0}</div>
+                      </div>
+                 </div>
+                 <div class="text-xs text-gray-500 italic">Zie rclone logs voor details over specifieke bestanden.</div>
+             `;
         }
 
         function renderSpeedChart(index, samples) {
@@ -1151,28 +1230,32 @@
         // --- ACTIONS ---
         function updateRunState(isRunning) {
              const btnRun = document.getElementById('btnRunNow');
+             const btnCheck = document.getElementById('btnCheckJob');
              const btnStop = document.getElementById('btnStopJob');
              
              if (isRunning) {
                  btnRun.classList.add('hidden');
+                 btnCheck.classList.add('hidden');
                  btnStop.classList.remove('hidden');
              } else {
                  btnRun.classList.remove('hidden');
+                 btnCheck.classList.remove('hidden');
                  btnStop.classList.add('hidden');
              }
         }
 
-        async function startJob(jobId) {
+        async function startJob(jobId, isCheck = false) {
             const job = jobs.find(j => j.id === jobId);
             if (!job) return;
 
             const uiStatus = document.getElementById('statStatus');
             if (uiStatus) {
-                uiStatus.innerText = "Bezig met starten...";
+                uiStatus.innerText = isCheck ? "Bezig met verifiëren..." : "Bezig met starten...";
                 uiStatus.className = "text-xl font-bold mt-1 text-yellow-400";
             }
 
             if (job.type === 'mount') {
+                // Mount doesn't support check or excludes in this UI context easily
                 const res = await rcloneRequest('mount/mount', { fs: job.source, mountPoint: job.dest });
                 if (res) {
                     if (uiStatus) {
@@ -1189,23 +1272,36 @@
                 return;
             }
 
-            // Backup Job
+            // Backup Job or Check
             // Reset stats first to ensure clean monitoring for the new job
             await rcloneRequest('core/stats-reset');
 
-            const res = await rcloneRequest('sync/copy', { 
+            const params = { 
                 srcFs: job.source, 
                 dstFs: job.dest, 
-                _async: true, 
-                _stats: true 
-            });
+                _async: true
+            };
+
+            // Add Excludes via _filter
+            if (job.excludes && job.excludes.length > 0) {
+                params._filter = { 'ExcludeRule': job.excludes };
+            }
+            
+            // For Sync/Copy we want stats
+            if (!isCheck) {
+                 params._stats = true;
+            }
+
+            const endpoint = isCheck ? 'operations/check' : 'sync/copy';
+            
+            const res = await rcloneRequest(endpoint, params);
             
             if (res && res.jobid) {
                 activeRcloneJobId = res.jobid; // Set global active ID
                 updateRunState(true);
-                monitorJob(jobId, res.jobid);
+                monitorJob(jobId, res.jobid, isCheck ? 'check' : 'sync');
             } else {
-                alert("Kon job niet starten. Controleer rclone verbinding.");
+                alert("Kon taak niet starten. Controleer rclone verbinding.");
                 if (uiStatus) {
                     uiStatus.innerText = "Fout";
                     uiStatus.className = "text-xl font-bold mt-1 text-red-400";
@@ -1222,7 +1318,7 @@
             }
         }
 
-        function monitorJob(internalJobId, rcloneJobId) {
+        function monitorJob(internalJobId, rcloneJobId, type = 'sync') {
             clearInterval(monitoringInterval);
             let speedSamples = []; // Store speed samples for the chart
 
@@ -1231,11 +1327,13 @@
                 const statsRes = await rcloneRequest('core/stats'); 
                 
                 if (activeJobId === internalJobId && statsRes) {
-                    // Collect sample
-                    speedSamples.push({
-                        t: Date.now(),
-                        s: statsRes.speed // bytes per second
-                    });
+                    // Collect sample (only for sync)
+                    if (type === 'sync') {
+                        speedSamples.push({
+                            t: Date.now(),
+                            s: statsRes.speed // bytes per second
+                        });
+                    }
 
                     const uiBytes = document.getElementById('statBytes');
                     const uiSpeed = document.getElementById('statSpeed');
@@ -1249,11 +1347,13 @@
                     const transferTable = document.getElementById('transferTableBody');
                     const activeTransfersSection = document.getElementById('activeTransfersSection');
 
+                    // If checking, stats might be different or less relevant during run
                     if (uiBytes) uiBytes.innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
                     if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
                     if (uiFiles) uiFiles.innerText = `${statsRes.transfers} / ${statsRes.checks}`;
                     if (uiSkipped) uiSkipped.innerText = `${statsRes.deletes + (statsRes.checks - statsRes.transfers)} overgeslagen`;
-                    if (uiStatus) uiStatus.innerText = "In uitvoering...";
+                    
+                    if (uiStatus) uiStatus.innerText = type === 'check' ? "Verifiëren..." : "In uitvoering...";
                     
                     if (uiTime) uiTime.innerText = statsRes.elapsedTime.toFixed(0) + "s";
                     if (uiErrors) {
@@ -1264,7 +1364,7 @@
                     if (uiEta) uiEta.innerText = statsRes.eta ? "ETA: " + statsRes.eta.toFixed(0) + "s" : "ETA: -";
 
                     // Handle Active Transfers
-                    if (statsRes.transferring && statsRes.transferring.length > 0) {
+                    if (type === 'sync' && statsRes.transferring && statsRes.transferring.length > 0) {
                         activeTransfersSection.classList.remove('hidden');
                         transferTable.innerHTML = '';
                         statsRes.transferring.forEach(t => {
@@ -1301,16 +1401,22 @@
                     updateRunState(false);
                     
                     const success = statusRes.success;
+                    
+                    // For Check, statusRes.output contains the diff stats
+                    const checkResult = type === 'check' ? statusRes.output : null;
+
                     const log = {
                         date: new Date().toLocaleString(),
                         duration: statsRes ? statsRes.elapsedTime.toFixed(1) + 's' : '?',
-                        status: success ? 'Succes' : 'Fout',
+                        status: success ? (type === 'check' ? 'Gecheckt' : 'Succes') : 'Fout',
                         size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?',
                         speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
                         files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
                         skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0,
                         errors: statsRes ? statsRes.errors : 0,
-                        speedSamples: speedSamples // Save samples
+                        type: type,
+                        speedSamples: speedSamples,
+                        checkResult: checkResult
                     };
                     addLog(internalJobId, log);
                     
@@ -1320,10 +1426,6 @@
                         if (activeTransfersSection) activeTransfersSection.classList.add('hidden');
 
                         if (uiStatus) {
-                            // Reset status display instead of showing last result permanently in "Active" area
-                            // The user requested that the status remains empty if no job runs.
-                            // However, strictly speaking, we might want to show "Voltooid" briefly or just clear it.
-                            // User said: "blijft leeg als er geen job draait".
                             uiStatus.innerText = "-";
                             uiStatus.className = "text-xl font-bold mt-1";
                             document.getElementById('statBytes').innerText = "0 MB";
@@ -1392,6 +1494,7 @@
             document.getElementById('jobSchedule').value = job.schedule || '';
             document.getElementById('jobSource').value = job.source;
             document.getElementById('jobDest').value = job.dest;
+            document.getElementById('jobExcludes').value = job.excludes ? job.excludes.join('\n') : '';
             document.getElementById('modalTitle').innerText = "Taak Bewerken";
             document.getElementById('btnDeleteInModal').classList.remove('hidden');
             document.getElementById('jobModal').classList.remove('hidden');
@@ -1421,6 +1524,7 @@
             const schedule = document.getElementById('jobSchedule').value;
             const source = document.getElementById('jobSource').value;
             const dest = document.getElementById('jobDest').value;
+            const excludes = document.getElementById('jobExcludes').value.split('\n').map(l => l.trim()).filter(l => l);
 
             let jobToSave;
             
@@ -1429,7 +1533,7 @@
                 if (jobIndex > -1) {
                     jobToSave = {
                         ...jobs[jobIndex],
-                        name, type, schedule, source, dest
+                        name, type, schedule, source, dest, excludes
                     };
                 }
             }
@@ -1438,7 +1542,7 @@
                  // New job
                  jobToSave = {
                     id: Date.now().toString(), // Temp ID, will be replaced/augmented by _id
-                    name, type, schedule, source, dest,
+                    name, type, schedule, source, dest, excludes,
                     history: []
                  };
             }
