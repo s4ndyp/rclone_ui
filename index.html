@@ -749,52 +749,134 @@
 
         function renderHistory(job) {
             const tbody = document.getElementById('historyTableBody');
+            const thead = document.querySelector('#historyTableBody').previousElementSibling;
+            
+            // Update Headers
+            thead.innerHTML = `
+                <tr>
+                    <th class="p-4">Datum</th>
+                    <th class="p-4">Duur</th>
+                    <th class="p-4">Status</th>
+                    <th class="p-4 text-right">Gem. Snelheid</th>
+                    <th class="p-4 text-right">Grootte</th>
+                    <th class="p-4 text-right">Bestanden</th>
+                    <th class="p-4 text-right">Skipped</th>
+                    <th class="p-4 text-right">Errors</th>
+                    <th class="p-4 w-8"></th>
+                </tr>
+            `;
+
             tbody.innerHTML = '';
             if (!job.history || job.history.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
                 return;
             }
 
-            job.history.forEach(log => {
+            job.history.forEach((log, index) => {
+                // Main Row
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-darkborder/30 transition cursor-pointer";
-                tr.onclick = () => showHistoryDetails(log);
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer border-b border-darkborder/50";
+                tr.onclick = () => toggleHistoryDetails(index, log);
                 tr.innerHTML = `
-                    <td class="p-4 text-gray-300">${log.date}</td>
+                    <td class="p-4 text-gray-300 whitespace-nowrap">${log.date}</td>
                     <td class="p-4 text-gray-400">${log.duration || '-'}</td>
                     <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">${log.status}</span></td>
                     <td class="p-4 text-right text-gray-400 font-mono">${log.speed || '-'}</td>
                     <td class="p-4 text-right text-gray-300 font-mono">${log.size || '-'}</td>
+                    <td class="p-4 text-right text-gray-400 font-mono">${log.files || '-'}</td>
+                    <td class="p-4 text-right text-gray-400 font-mono">${log.skipped || '0'}</td>
+                    <td class="p-4 text-right ${log.errors > 0 ? 'text-red-400 font-bold' : 'text-gray-400'} font-mono">${log.errors || '0'}</td>
+                    <td class="p-4 text-center text-gray-500"><i class="fa-solid fa-chevron-down transition-transform" id="icon-${index}"></i></td>
                 `;
                 tbody.appendChild(tr);
+
+                // Details Row
+                const trDetail = document.createElement('tr');
+                trDetail.id = `detail-${index}`;
+                trDetail.className = "hidden bg-darkbg/50";
+                trDetail.innerHTML = `
+                    <td colspan="9" class="p-4">
+                        <div class="h-48 w-full bg-darkcard rounded-lg border border-darkborder p-4 relative" id="chart-${index}">
+                            <!-- Chart rendered here -->
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(trDetail);
             });
         }
 
-        function showHistoryDetails(log) {
-            // Als er een actieve job loopt (monitoringInterval is set), dan negeren we de klik om verwarring te voorkomen
-            if (monitoringInterval) return;
+        function toggleHistoryDetails(index, log) {
+            const detailRow = document.getElementById(`detail-${index}`);
+            const icon = document.getElementById(`icon-${index}`);
+            const isHidden = detailRow.classList.contains('hidden');
 
-            const uiStatus = document.getElementById('statStatus');
-            const uiBytes = document.getElementById('statBytes');
-            const uiFiles = document.getElementById('statFiles');
-            const uiSkipped = document.getElementById('statSkipped');
-            const uiSpeed = document.getElementById('statSpeed');
-            const uiTime = document.getElementById('statTime');
-            const uiErrors = document.getElementById('statErrors');
-            const uiTotalBytes = document.getElementById('statTotalBytes');
-            const uiEta = document.getElementById('statEta');
-
-            if (uiStatus) {
-                uiStatus.innerText = log.status;
-                uiStatus.className = log.status === 'Succes' ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+            // Close others? Optional. Let's keep it simple and allow multiple open.
+            
+            if (isHidden) {
+                detailRow.classList.remove('hidden');
+                icon.style.transform = "rotate(180deg)";
+                renderSpeedChart(index, log.speedSamples);
+            } else {
+                detailRow.classList.add('hidden');
+                icon.style.transform = "rotate(0deg)";
             }
-            if (uiBytes) uiBytes.innerText = log.size;
-            if (uiFiles) uiFiles.innerText = log.files || '-';
-            if (uiSkipped) uiSkipped.innerText = log.skipped ? `${log.skipped} overgeslagen` : '-';
-            if (uiSpeed) uiSpeed.innerText = log.speed || '-';
-            if (uiTime) uiTime.innerText = log.duration || '-';
-            if (uiErrors) uiErrors.innerText = log.errors ? `${log.errors} errors` : '0 errors';
-            if (uiEta) uiEta.innerText = "ETA: -";
+        }
+
+        function renderSpeedChart(index, samples) {
+            const container = document.getElementById(`chart-${index}`);
+            if (!samples || samples.length === 0) {
+                container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Geen snelheidsdata beschikbaar</div>';
+                return;
+            }
+
+            // Find max speed for scaling
+            const maxSpeed = Math.max(...samples.map(s => s.s));
+            if (maxSpeed === 0) {
+                container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Geen activiteit gemeten</div>';
+                return;
+            }
+
+            container.innerHTML = '';
+            
+            // Title
+            const title = document.createElement('div');
+            title.className = "absolute top-2 left-4 text-xs font-bold text-gray-400";
+            title.innerText = "Snelheid (Bytes/s) over tijd";
+            container.appendChild(title);
+
+            // Chart area
+            const chartArea = document.createElement('div');
+            chartArea.className = "flex items-end h-full w-full gap-1 pt-6 pb-2 px-2";
+            
+            const barCount = samples.length;
+            
+            samples.forEach((sample, i) => {
+                const heightPerc = (sample.s / maxSpeed) * 100;
+                const bar = document.createElement('div');
+                // Use a gradient or solid color
+                bar.className = "flex-1 bg-blue-500/50 hover:bg-blue-400 transition-all rounded-t relative group min-w-[2px]";
+                bar.style.height = `${Math.max(heightPerc, 1)}%`;
+                
+                // Tooltip
+                const humanSpeed = (sample.s / 1024 / 1024).toFixed(2) + " MB/s";
+                const timeStr = new Date(sample.t).toLocaleTimeString();
+                
+                bar.innerHTML = `
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-10 whitespace-nowrap bg-gray-900 text-white text-[10px] py-1 px-2 rounded border border-gray-700 shadow-xl">
+                        ${timeStr} - ${humanSpeed}
+                    </div>
+                `;
+                
+                chartArea.appendChild(bar);
+            });
+
+            container.appendChild(chartArea);
+        }
+
+        // Deprecated/Removed functionality (showHistoryDetails was removing the stats isolation)
+        // Kept empty or removed to satisfy query.
+        function showHistoryDetails(log) {
+            // Functionality moved to inline expansion.
         }
 
         let targetInputId = null;
@@ -935,11 +1017,19 @@
 
         function monitorJob(internalJobId, rcloneJobId) {
             clearInterval(monitoringInterval);
+            let speedSamples = []; // Store speed samples for the chart
+
             monitoringInterval = setInterval(async () => {
                 const statusRes = await rcloneRequest('job/status', { jobid: rcloneJobId });
                 const statsRes = await rcloneRequest('core/stats'); 
                 
                 if (activeJobId === internalJobId && statsRes) {
+                    // Collect sample
+                    speedSamples.push({
+                        t: Date.now(),
+                        s: statsRes.speed // bytes per second
+                    });
+
                     const uiBytes = document.getElementById('statBytes');
                     const uiSpeed = document.getElementById('statSpeed');
                     const uiFiles = document.getElementById('statFiles');
@@ -1009,7 +1099,8 @@
                         speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
                         files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
                         skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0,
-                        errors: statsRes ? statsRes.errors : 0
+                        errors: statsRes ? statsRes.errors : 0,
+                        speedSamples: speedSamples // Save samples
                     };
                     addLog(internalJobId, log);
                     
@@ -1019,8 +1110,16 @@
                         if (activeTransfersSection) activeTransfersSection.classList.add('hidden');
 
                         if (uiStatus) {
-                            uiStatus.innerText = success ? "Voltooid" : "Mislukt";
-                            uiStatus.className = success ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+                            // Reset status display instead of showing last result permanently in "Active" area
+                            // The user requested that the status remains empty if no job runs.
+                            // However, strictly speaking, we might want to show "Voltooid" briefly or just clear it.
+                            // User said: "blijft leeg als er geen job draait".
+                            uiStatus.innerText = "-";
+                            uiStatus.className = "text-xl font-bold mt-1";
+                            document.getElementById('statBytes').innerText = "0 MB";
+                            document.getElementById('statSpeed').innerText = "-";
+                            document.getElementById('statFiles').innerText = "0 / 0";
+                            document.getElementById('statTime').innerText = "0s";
                         }
                         renderHistory(jobs.find(j => j.id === internalJobId));
                     }
