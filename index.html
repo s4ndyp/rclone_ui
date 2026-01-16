@@ -490,16 +490,17 @@
         async function syncWithServer() {
             try {
                 // Fetch jobs from MongoDB
-                const remoteJobs = await manager.getSmartCollection('jobs');
+                const remoteJobs = await manager.getCollection('jobs');
                 if (Array.isArray(remoteJobs)) {
                     jobs = remoteJobs.map(j => ({
                         ...j,
-                        id: j.id || j._id // Ensure we have an id for internal use
+                        id: j.id || j._id, // Ensure we have an id for internal use
+                        _id: j._id // Keep MongoDB _id for updates
                     }));
                 }
 
                 // Fetch latest remote stats
-                const allStats = await manager.getSmartCollection('remstats');
+                const allStats = await manager.getCollection('remstats');
                 if (Array.isArray(allStats)) {
                     remoteStats = {};
                     allStats.forEach(doc => {
@@ -568,25 +569,34 @@
                     free: about ? about.free : null
                 };
 
-                // Fetch existing record or create new
-                let record = await manager.getSmartDocument('remstats', name);
-                if (!record) {
-                    record = {
-                        _id: name,
-                        remote: name,
-                        history: []
-                    };
+                // Check if record exists
+                let existingRecord = await manager.getDocument('remstats', name);
+                let record = {
+                    _id: name,
+                    remote: name,
+                    history: []
+                };
+
+                if (existingRecord) {
+                    // Update existing record
+                    record = existingRecord;
+                    if (!record.history) record.history = [];
+
+                    // Remove today's entry if exists (overwrite)
+                    record.history = record.history.filter(h => h.date !== today);
+                    record.history.push(newEntry);
+                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    // Save to Mongo with PUT
+                    await manager.putDocument('remstats', name, record);
+                } else {
+                    // Create new record
+                    record.history.push(newEntry);
+                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                    // Save to Mongo with POST
+                    await manager.postDocument('remstats', record);
                 }
-
-                if (!record.history) record.history = [];
-
-                // Remove today's entry if exists (overwrite)
-                record.history = record.history.filter(h => h.date !== today);
-                record.history.push(newEntry);
-                record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                // Save to Mongo
-                await manager.saveSmartDocument('remstats', record);
 
                 // Update local state
                 remoteStats[name] = record;
@@ -619,26 +629,35 @@
                     // Create unique ID for this task-path combination
                     const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
-                    // Fetch existing record or create new
-                    let record = await manager.getSmartDocument('taskremstats', statsId);
-                    if (!record) {
-                        record = {
-                            _id: statsId,
-                            jobId: jobId,
-                            path: path,
-                            history: []
-                        };
+                    // Check if record exists
+                    let existingRecord = await manager.getDocument('taskremstats', statsId);
+                    let record = {
+                        _id: statsId,
+                        jobId: jobId,
+                        path: path,
+                        history: []
+                    };
+
+                    if (existingRecord) {
+                        // Update existing record
+                        record = existingRecord;
+                        if (!record.history) record.history = [];
+
+                        // Remove today's entry if exists (overwrite)
+                        record.history = record.history.filter(h => h.date !== today);
+                        record.history.push(newEntry);
+                        record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                        // Save to Mongo with PUT
+                        await manager.putDocument('taskremstats', statsId, record);
+                    } else {
+                        // Create new record
+                        record.history.push(newEntry);
+                        record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                        // Save to Mongo with POST
+                        await manager.postDocument('taskremstats', record);
                     }
-
-                    if (!record.history) record.history = [];
-
-                    // Remove today's entry if exists (overwrite)
-                    record.history = record.history.filter(h => h.date !== today);
-                    record.history.push(newEntry);
-                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                    // Save to Mongo
-                    await manager.saveSmartDocument('taskremstats', record);
 
                     return record;
                 }
@@ -650,7 +669,7 @@
 
         async function getTaskRemStats(jobId, path) {
             const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
-            return await manager.getSmartDocument('taskremstats', statsId);
+            return await manager.getDocument('taskremstats', statsId);
         }
 
         async function handleUpdateRemoteStats(event, btn, name) {
@@ -674,7 +693,18 @@
                 // We send the whole job object. MongoManager handles _id check.
                 // If job has _id, it updates. If not, it creates.
                 
-                const savedJob = await manager.saveSmartDocument('jobs', job);
+                let savedJob;
+            if (job._id) {
+                // Update existing job
+                savedJob = await manager.putDocument('jobs', job._id, job);
+            } else {
+                // Create new job
+                savedJob = await manager.postDocument('jobs', job);
+                // Store the returned _id for future updates
+                if (savedJob && savedJob._id) {
+                    job._id = savedJob._id;
+                }
+            }
                 
                 // Update internal state with saved version (to get _id if new)
                 const index = jobs.findIndex(j => j.id === job.id);
@@ -704,7 +734,7 @@
                  // The MongoManager uses data._id for save, but delete takes an id.
                  
                  const mongoId = job._id || job.id; 
-                 await manager.deleteSmartDocument('jobs', mongoId);
+                 await manager.deleteDocument('jobs', mongoId);
              } catch(e) {
                  console.error("Failed to delete job:", e);
                  alert("Kon taak niet verwijderen van de server.");
@@ -1183,7 +1213,7 @@
         async function renderJobChart(job, canvasId) {
             try {
                 // Get job history data
-                const jobHistory = await manager.getSmartCollection('jobstats');
+                const jobHistory = await manager.getCollection('jobstats');
                 const jobStats = jobHistory
                     .filter(s => s.jobId === job.id)
                     .sort((a, b) => new Date(a.date) - new Date(b.date));
