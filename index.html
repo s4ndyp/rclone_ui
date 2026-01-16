@@ -996,6 +996,7 @@
                     jobDiv.appendChild(headerDiv);
 
                     // Source path remstats
+                    let sourceStats = null;
                     if (job.source && job.source.startsWith(name + ':')) {
                         const sourceStatsDiv = document.createElement('div');
                         sourceStatsDiv.className = "p-4 border-b border-darkborder";
@@ -1009,13 +1010,13 @@
                         `;
                         jobDiv.appendChild(sourceStatsDiv);
 
-                        // Update and render source stats
+                        // Update source stats (but don't render yet)
                         await updateTaskRemStats(job.id, job.source);
-                        const sourceStats = await getTaskRemStats(job.id, job.source);
-                        await renderTaskRemStatsChart(sourceStats, `taskRemStats-${job.id}-source`);
+                        sourceStats = await getTaskRemStats(job.id, job.source);
                     }
 
                     // Destination path remstats
+                    let destStats = null;
                     if (job.dest && job.dest.startsWith(name + ':')) {
                         const destStatsDiv = document.createElement('div');
                         destStatsDiv.className = "p-4";
@@ -1029,13 +1030,20 @@
                         `;
                         jobDiv.appendChild(destStatsDiv);
 
-                        // Update and render destination stats
+                        // Update destination stats (but don't render yet)
                         await updateTaskRemStats(job.id, job.dest);
-                        const destStats = await getTaskRemStats(job.id, job.dest);
-                        await renderTaskRemStatsChart(destStats, `taskRemStats-${job.id}-dest`);
+                        destStats = await getTaskRemStats(job.id, job.dest);
                     }
 
                     linkedJobsEl.appendChild(jobDiv);
+
+                    // Now render charts after DOM is updated
+                    if (sourceStats !== null) {
+                        await renderTaskRemStatsChart(sourceStats, `taskRemStats-${job.id}-source`);
+                    }
+                    if (destStats !== null) {
+                        await renderTaskRemStatsChart(destStats, `taskRemStats-${job.id}-dest`);
+                    }
                 });
             } else {
                 linkedJobsEl.innerHTML = '<div class="text-center py-8 text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
@@ -1052,9 +1060,15 @@
 
         async function renderRemoteChart(remoteName, canvasId) {
             try {
+                const canvas = document.getElementById(canvasId);
+                if (!canvas) {
+                    console.warn(`Canvas element ${canvasId} not found in DOM`);
+                    return;
+                }
+
                 const record = remoteStats[remoteName];
                 if (!record || !record.history || record.history.length === 0) {
-                     const ctx = document.getElementById(canvasId).getContext('2d');
+                     const ctx = canvas.getContext('2d');
                      ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
                      ctx.font = '14px Arial';
                      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
@@ -1082,7 +1096,7 @@
                     remoteCharts[canvasId].destroy();
                 }
 
-                const ctx = document.getElementById(canvasId).getContext('2d');
+                const ctx = canvas.getContext('2d');
                 remoteCharts[canvasId] = new Chart(ctx, {
                     type: 'line',
                     data: {
@@ -1160,8 +1174,14 @@
 
         async function renderTaskRemStatsChart(record, canvasId) {
             try {
+                const canvas = document.getElementById(canvasId);
+                if (!canvas) {
+                    console.warn(`Canvas element ${canvasId} not found in DOM`);
+                    return;
+                }
+
                 if (!record || !record.history || record.history.length === 0) {
-                    const ctx = document.getElementById(canvasId).getContext('2d');
+                    const ctx = canvas.getContext('2d');
                     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
                     ctx.font = '14px Arial';
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
@@ -1182,7 +1202,7 @@
                     taskRemStatsCharts[canvasId].destroy();
                 }
 
-                const ctx = document.getElementById(canvasId).getContext('2d');
+                const ctx = canvas.getContext('2d');
                 taskRemStatsCharts[canvasId] = new Chart(ctx, {
                     type: 'line',
                     data: {
@@ -1261,6 +1281,12 @@
 
         async function renderJobChart(job, canvasId) {
             try {
+                const canvas = document.getElementById(canvasId);
+                if (!canvas) {
+                    console.warn(`Canvas element ${canvasId} not found in DOM`);
+                    return;
+                }
+
                 // Get job history data
                 const jobHistory = await manager.getCollection('jobstats');
                 const jobStats = jobHistory
@@ -1273,7 +1299,7 @@
                 const filteredStats = jobStats.filter(s => new Date(s.date) >= thirtyDaysAgo);
 
                 if (filteredStats.length === 0) {
-                    const ctx = document.getElementById(canvasId).getContext('2d');
+                    const ctx = canvas.getContext('2d');
                     ctx.font = '12px Arial';
                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
                     ctx.textAlign = 'center';
@@ -1293,7 +1319,7 @@
                     jobCharts[canvasId].destroy();
                 }
 
-                const ctx = document.getElementById(canvasId).getContext('2d');
+                const ctx = canvas.getContext('2d');
                 jobCharts[canvasId] = new Chart(ctx, {
                     type: 'bar',
                     data: {
