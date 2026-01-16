@@ -372,9 +372,17 @@
         </div>
     </div>
 
+    <script src="mongo_manager.js"></script>
     <script>
+        // --- CONSTANTS ---
+        const APP_NAME = 'appnaam';
+        const CLIENT_ID = 'sandman';
+        const API_URL = 'http://10.10.2.20:5000';
+
+        const manager = new MongoManager(API_URL, CLIENT_ID, APP_NAME);
+
         // --- STATE ---
-        let jobs = JSON.parse(localStorage.getItem('rclone_jobs')) || [];
+        let jobs = []; // Loaded from Mongo
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
         let activeRcloneJobId = null; // Track if a job is currently running
@@ -421,26 +429,72 @@
 
         async function syncWithServer() {
             try {
-                const res = await fetch('/api/get_jobs');
-                if (res.ok) {
-                    jobs = await res.json();
+                // Fetch jobs from MongoDB
+                const remoteJobs = await manager.getSmartCollection('jobs');
+                if (Array.isArray(remoteJobs)) {
+                    jobs = remoteJobs.map(j => ({
+                        ...j,
+                        id: j.id || j._id // Ensure we have an id for internal use
+                    }));
                     renderSidebar();
                 }
             } catch (e) {
-                console.warn("Server sync failed, using local data.");
+                console.warn("Server sync failed:", e);
+                // Optionally handle offline state here if needed
             }
         }
 
-        async function saveToServer() {
-            localStorage.setItem('rclone_jobs', JSON.stringify(jobs));
+        async function saveJobToMongo(job) {
             try {
-                await fetch('/api/jobs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(jobs)
-                });
-            } catch (e) {}
-            renderSidebar();
+                // Ensure the job has an _id if it already exists remotely (mapped from internal job)
+                // If internal id matches a remote _id, we should use it.
+                // Currently internal 'id' is used.
+                // We send the whole job object. MongoManager handles _id check.
+                // If job has _id, it updates. If not, it creates.
+                
+                const savedJob = await manager.saveSmartDocument('jobs', job);
+                
+                // Update internal state with saved version (to get _id if new)
+                const index = jobs.findIndex(j => j.id === job.id);
+                if (index !== -1) {
+                    jobs[index] = { ...savedJob, id: savedJob.id || savedJob._id };
+                } else {
+                    // Should be already added by form, but if not:
+                    jobs.push({ ...savedJob, id: savedJob.id || savedJob._id });
+                }
+                renderSidebar();
+                return savedJob;
+            } catch (e) {
+                console.error("Failed to save job:", e);
+                alert("Kon taak niet opslaan op de server.");
+            }
+        }
+
+        async function deleteJobFromMongo(jobId) {
+             const job = jobs.find(j => j.id === jobId);
+             if (!job) return;
+             
+             try {
+                 // Use _id if available (from Mongo), otherwise we can't delete from Mongo easily 
+                 // unless we stored _id in the job object.
+                 // In syncWithServer we mapped id: j.id || j._id.
+                 // We need the actual _id for the API call if it differs from id.
+                 // The MongoManager uses data._id for save, but delete takes an id.
+                 
+                 const mongoId = job._id || job.id; 
+                 await manager.deleteSmartDocument('jobs', mongoId);
+             } catch(e) {
+                 console.error("Failed to delete job:", e);
+                 alert("Kon taak niet verwijderen van de server.");
+             }
+        }
+
+        /* 
+           Deprecating old saveToServer in favor of direct manager calls.
+           Keeping empty function if referenced elsewhere, but logic moved.
+        */
+        async function saveToServer() {
+           // No-op for bulk save. We save individually now.
         }
 
         function updateStatus(connected) {
@@ -980,17 +1034,23 @@
                 if (!job.history) job.history = [];
                 job.history.unshift(log);
                 if (job.history.length > 50) job.history.pop();
-                saveToServer();
+                // Save specific job to Mongo
+                saveJobToMongo(job);
             }
         }
 
         function deleteJob(id) {
             if(confirm('Weet je zeker dat je deze taak wilt verwijderen?')) {
-                jobs = jobs.filter(j => j.id !== id);
-                saveToServer();
-                activeJobId = null;
-                document.getElementById('jobDetail').classList.add('hidden');
-                document.getElementById('emptyState').classList.remove('hidden');
+                // Remove from local first for UI responsiveness? Or wait?
+                // Better to fire and forget or wait.
+                // Let's call delete first.
+                deleteJobFromMongo(id).then(() => {
+                    jobs = jobs.filter(j => j.id !== id);
+                    activeJobId = null;
+                    document.getElementById('jobDetail').classList.add('hidden');
+                    document.getElementById('emptyState').classList.remove('hidden');
+                    renderSidebar();
+                });
             }
         }
 
@@ -1026,27 +1086,49 @@
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
 
-        document.getElementById('jobForm').onsubmit = (e) => {
+        document.getElementById('jobForm').onsubmit = async (e) => {
             e.preventDefault();
-            const id = document.getElementById('editJobId').value || Date.now().toString();
+            // If editing, use existing ID. If new, let Mongo generate _id, 
+            // but we need a temporary ID for the UI until it returns? 
+            // Or just wait for save.
+            
+            const existingId = document.getElementById('editJobId').value;
+            // If existingId is present, we are editing.
+            
             const name = document.getElementById('jobName').value;
             const type = document.getElementById('jobType').value;
             const schedule = document.getElementById('jobSchedule').value;
             const source = document.getElementById('jobSource').value;
             const dest = document.getElementById('jobDest').value;
 
-            const jobIndex = jobs.findIndex(j => j.id === id);
-            const jobData = {
-                id, name, type, schedule, source, dest,
-                history: jobIndex > -1 ? jobs[jobIndex].history : []
-            };
+            let jobToSave;
+            
+            if (existingId) {
+                const jobIndex = jobs.findIndex(j => j.id === existingId);
+                if (jobIndex > -1) {
+                    jobToSave = {
+                        ...jobs[jobIndex],
+                        name, type, schedule, source, dest
+                    };
+                }
+            }
+            
+            if (!jobToSave) {
+                 // New job
+                 jobToSave = {
+                    id: Date.now().toString(), // Temp ID, will be replaced/augmented by _id
+                    name, type, schedule, source, dest,
+                    history: []
+                 };
+            }
 
-            if (jobIndex > -1) jobs[jobIndex] = jobData;
-            else jobs.push(jobData);
-
-            saveToServer();
-            closeJobModal();
-            selectJob(id);
+            // Save to Mongo
+            const savedJob = await saveJobToMongo(jobToSave);
+            
+            if (savedJob) {
+                closeJobModal();
+                selectJob(savedJob.id || savedJob._id);
+            }
         };
 
         function openConfigModal() {
