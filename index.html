@@ -226,14 +226,54 @@
                 </div>
 
                 <div id="remotesView" class="hidden p-8 space-y-6">
-                    <div class="flex justify-between items-center">
-                        <h3 class="text-2xl font-bold text-white">Geconfigureerde Remotes</h3>
-                        <button onclick="openAddRemoteModal()" class="bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded flex items-center gap-2">
+                     <div id="remoteEmptyState" class="flex-1 flex flex-col items-center justify-center text-gray-500 h-full hidden">
+                        <i class="fa-solid fa-server text-6xl mb-4 text-darkborder"></i>
+                        <p>Selecteer een remote om statistieken te bekijken</p>
+                        <button onclick="openAddRemoteModal()" class="mt-4 bg-purple-600 hover:bg-purple-500 text-white px-4 py-2 rounded flex items-center gap-2">
                             <i class="fa-solid fa-plus"></i> Nieuwe Remote
                         </button>
                     </div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4" id="remotesGrid">
-                        <!-- Remotes will be rendered here -->
+
+                    <div id="remoteDetailContent" class="hidden space-y-6">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <h3 id="remoteDetailTitle" class="text-3xl font-bold text-white">Remote Naam</h3>
+                                <p id="remoteDetailType" class="text-gray-400 mt-2 font-mono text-sm"></p>
+                            </div>
+                            <div class="flex gap-2">
+                                <button id="btnBrowseRemote" class="bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white px-4 py-2 rounded border border-blue-800/30">
+                                    <i class="fa-solid fa-folder-open"></i> Verkenner
+                                </button>
+                                <button id="btnDeleteRemote" class="bg-red-900/50 hover:bg-red-800 text-red-200 px-4 py-2 rounded border border-red-800/50">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Remote Stats -->
+                        <div class="grid grid-cols-3 gap-4">
+                            <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                                <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Totaal</div>
+                                <div id="remoteStatTotal" class="text-xl font-bold mt-1 text-white">-</div>
+                            </div>
+                            <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                                <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Gebruikt</div>
+                                <div id="remoteStatUsed" class="text-xl font-bold mt-1 text-yellow-400">-</div>
+                            </div>
+                            <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
+                                <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Vrij</div>
+                                <div id="remoteStatFree" class="text-xl font-bold mt-1 text-green-400">-</div>
+                            </div>
+                        </div>
+
+                        <div id="remoteStatError" class="hidden bg-yellow-900/20 text-yellow-200 p-4 rounded border border-yellow-800/50 text-sm">
+                            <i class="fa-solid fa-info-circle mr-2"></i> Deze remote ondersteunt geen opslagstatistieken of is niet bereikbaar.
+                        </div>
+                        
+                        <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                             <h4 class="font-bold text-white mb-4">Configuratie</h4>
+                             <pre id="remoteConfigDump" class="text-xs text-gray-400 font-mono bg-darkbg p-4 rounded overflow-x-auto"></pre>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -397,8 +437,10 @@
 
         // --- STATE ---
         let jobs = []; // Loaded from Mongo
+        let configuredRemotes = {}; // Cache for remotes
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
+        let activeRemoteName = null;
         let activeRcloneJobId = null; // Track if a job is currently running
         let activeSection = 'backups';
         let monitoringInterval = null;
@@ -570,7 +612,7 @@
             document.getElementById('nav-browser').classList.toggle('active-link', section === 'browser');
             
             activeJobId = null;
-            renderSidebar();
+            activeRemoteName = null;
             
             document.getElementById('jobDetail').classList.add('hidden');
             document.getElementById('browserView').classList.add('hidden');
@@ -580,10 +622,15 @@
             if (section === 'browser') {
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('browserView').classList.remove('hidden');
+                renderSidebar();
             } else if (section === 'remotes') {
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('remotesView').classList.remove('hidden');
-                loadRemotes();
+                document.getElementById('remoteEmptyState').classList.remove('hidden');
+                document.getElementById('remoteDetailContent').classList.add('hidden');
+                loadRemotes(); // Will also render sidebar
+            } else {
+                renderSidebar();
             }
         }
 
@@ -653,35 +700,50 @@
         }
 
         async function loadRemotes() {
-            const grid = document.getElementById('remotesGrid');
-            grid.innerHTML = '<div class="col-span-full text-center py-10"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Remotes laden...</div>';
-            
+            // Update cache
             const res = await rcloneRequest('config/dump');
-            if (!res) {
-                grid.innerHTML = '<div class="col-span-full text-center text-red-400 py-10">Kon remotes niet laden.</div>';
-                return;
+            if (res) {
+                configuredRemotes = res;
+                renderSidebar();
             }
+        }
 
-            grid.innerHTML = '';
-            Object.keys(res).forEach(name => {
-                const config = res[name];
-                const card = document.createElement('div');
-                card.className = "bg-darkcard border border-darkborder p-5 rounded-xl space-y-3";
-                card.innerHTML = `
-                    <div class="flex justify-between items-start">
-                        <div>
-                            <div class="font-bold text-lg text-white">${name}:</div>
-                            <div class="text-xs text-gray-500 uppercase font-bold tracking-tighter">${config.type}</div>
-                        </div>
-                        <button onclick="deleteRemote('${name}')" class="text-gray-600 hover:text-red-400 transition"><i class="fa-solid fa-trash"></i></button>
-                    </div>
-                    <div class="text-sm text-gray-400 font-mono truncate">
-                        ${config.host || config.service_account_file || 'Remote storage'}
-                    </div>
-                    <button onclick="browsePath('${name}:')" class="w-full mt-2 py-2 bg-darkborder hover:bg-gray-700 text-xs rounded transition uppercase font-bold">Bekijken in verkenner</button>
-                `;
-                grid.appendChild(card);
-            });
+        async function selectRemote(name) {
+            activeRemoteName = name;
+            renderSidebar();
+
+            document.getElementById('remoteEmptyState').classList.add('hidden');
+            document.getElementById('remoteDetailContent').classList.remove('hidden');
+
+            const remoteConfig = configuredRemotes[name];
+            document.getElementById('remoteDetailTitle').innerText = name;
+            document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
+            document.getElementById('remoteConfigDump').innerText = JSON.stringify(remoteConfig, null, 2);
+
+            document.getElementById('btnBrowseRemote').onclick = () => {
+                showSection('browser');
+                browsePath(name + ':');
+            };
+            document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
+
+            // Fetch Stats
+            document.getElementById('remoteStatTotal').innerText = '...';
+            document.getElementById('remoteStatUsed').innerText = '...';
+            document.getElementById('remoteStatFree').innerText = '...';
+            document.getElementById('remoteStatError').classList.add('hidden');
+
+            const about = await rcloneRequest('operations/about', { fs: name + ':' });
+            if (about) {
+                const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                document.getElementById('remoteStatTotal').innerText = about.total ? fmt(about.total) : '-';
+                document.getElementById('remoteStatUsed').innerText = about.used ? fmt(about.used) : '-';
+                document.getElementById('remoteStatFree').innerText = about.free ? fmt(about.free) : '-';
+            } else {
+                document.getElementById('remoteStatTotal').innerText = '-';
+                document.getElementById('remoteStatUsed').innerText = '-';
+                document.getElementById('remoteStatFree').innerText = '-';
+                document.getElementById('remoteStatError').classList.remove('hidden');
+            }
         }
 
         function openAddRemoteModal() { document.getElementById('remoteModal').classList.remove('hidden'); }
@@ -725,6 +787,37 @@
         function renderSidebar() {
             const list = document.getElementById('jobList');
             list.innerHTML = '';
+
+            // --- REMOTES VIEW ---
+            if (activeSection === 'remotes') {
+                const remoteNames = Object.keys(configuredRemotes);
+                if (remoteNames.length === 0) {
+                     list.innerHTML = '<div class="text-center text-gray-600 py-10 text-sm italic">Geen remotes geconfigureerd</div>';
+                     return;
+                }
+                
+                remoteNames.forEach(name => {
+                    const config = configuredRemotes[name];
+                    const div = document.createElement('div');
+                    div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-2 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
+                    div.onclick = () => selectRemote(name);
+                    div.innerHTML = `
+                        <div class="flex items-center gap-3">
+                            <div class="bg-purple-900/30 p-2 rounded-lg text-purple-400">
+                                <i class="fa-solid fa-server"></i>
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <div class="font-bold text-white truncate">${name}</div>
+                                <div class="text-[10px] text-gray-500 truncate uppercase tracking-wider">${config.type}</div>
+                            </div>
+                        </div>
+                    `;
+                    list.appendChild(div);
+                });
+                return;
+            }
+
+            // --- JOBS VIEW ---
             const filteredJobs = jobs.filter(j => (j.type || 'backup') === (activeSection === 'backups' ? 'backup' : 'mount'));
             
             if (filteredJobs.length === 0) {
