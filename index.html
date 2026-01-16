@@ -447,9 +447,6 @@
         // --- STATE ---
         let jobs = []; // Loaded from Mongo
         let configuredRemotes = {}; // Cache for remotes
-        let remoteStats = {}; // Cache for latest remote stats { name: { size: bytes, count: total, date: 'YYYY-MM-DD' } }
-        let remoteHistory = {}; // Cache for 90 days history { name: [ { date, size, count } ] }
-        let remoteStatsMapping = {}; // Mapping of remote name to MongoDB _id { name: mongoId }
         let taskRemStatsMapping = {}; // Mapping of task stats key to MongoDB _id { statsId: mongoId }
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
@@ -510,54 +507,28 @@
                     }));
                 }
 
-                // Fetch latest remote stats
-                const allStats = await manager.getCollection('remstats');
-                if (Array.isArray(allStats)) {
-                    remoteStats = {};
-                    remoteStatsMapping = {};
-                    allStats.forEach(doc => {
-                        // Support new structure (individual history per remote)
-                        if (doc.history && Array.isArray(doc.history)) {
-                            const remoteName = doc.remote || doc._id;
-                            remoteStats[remoteName] = doc;
-                            // Update mapping: remote name -> MongoDB _id
-                            if (doc._id && doc.remote) {
-                                remoteStatsMapping[doc.remote] = doc._id;
-                            }
-                        }
-                    });
-                }
                 
                 renderSidebar();
-                checkDailyStatsSync();
+                checkDailyTaskStatsSync();
             } catch (e) {
                 console.warn("Server sync failed:", e);
                 // Optionally handle offline state here if needed
             }
         }
 
-        async function checkDailyStatsSync() {
+        async function checkDailyTaskStatsSync() {
             const today = new Date().toISOString().split('T')[0];
-            const lastSync = localStorage.getItem('last_remote_stats_sync');
-            
+            const lastSync = localStorage.getItem('last_task_stats_sync');
+
             if (lastSync !== today) {
-                console.log("Daily remote stats sync starting...");
-                await updateAllRemoteStats();
-                localStorage.setItem('last_remote_stats_sync', today);
+                console.log("Daily task stats sync starting...");
+                await updateAllTaskRemStats();
+                localStorage.setItem('last_task_stats_sync', today);
             }
         }
 
-        async function updateAllRemoteStats() {
-            if (Object.keys(configuredRemotes).length === 0) {
-                const res = await rcloneRequest('config/dump');
-                if (res) configuredRemotes = res;
-            }
-
-            for (const name in configuredRemotes) {
-                await updateRemoteStats(name);
-            }
-
-            // Also update task remstats for all jobs
+        async function updateAllTaskRemStats() {
+            // Update task remstats for all jobs
             for (const job of jobs) {
                 if (job.source) {
                     await updateTaskRemStats(job.id, job.source);
@@ -568,84 +539,6 @@
             }
         }
 
-        async function updateRemoteStats(name) {
-            console.log(`Updating stats for ${name}...`);
-
-            // Try operations/about first for disk info
-            const about = await rcloneRequest('operations/about', { fs: name + ':' });
-            // Then operations/size for file count and accurate usage
-            const size = await rcloneRequest('operations/size', { fs: name + ':' });
-
-            if (size || about) {
-                const today = new Date().toISOString().split('T')[0];
-                const newEntry = {
-                    date: today,
-                    size: size ? size.bytes : (about ? about.used : 0),
-                    count: size ? size.count : 0,
-                    total: about ? about.total : null,
-                    free: about ? about.free : null
-                };
-
-                // Check if we have a mapping for this remote
-                let mongoId = remoteStatsMapping[name];
-                let existingRecord = null;
-
-                if (mongoId) {
-                    // We know the MongoDB _id, get the record directly
-                    existingRecord = await manager.getDocument('remstats', mongoId);
-                } else {
-                    // No mapping yet, search for existing record by remote name
-                    const allStats = await manager.getCollection('remstats');
-                    if (Array.isArray(allStats)) {
-                        existingRecord = allStats.find(doc => doc.remote === name);
-                        if (existingRecord) {
-                            // Found existing record, update mapping
-                            remoteStatsMapping[name] = existingRecord._id;
-                        }
-                    }
-                }
-
-                if (existingRecord) {
-                    // Update existing record
-                    const record = existingRecord;
-                    if (!record.history) record.history = [];
-
-                    // Remove today's entry if exists (overwrite)
-                    record.history = record.history.filter(h => h.date !== today);
-                    record.history.push(newEntry);
-                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-                    // Save to Mongo with PUT using the MongoDB _id
-                    await manager.putDocument('remstats', record._id, record);
-                } else {
-                    // Create new record without custom _id (let MongoDB generate it)
-                    const record = {
-                        remote: name,
-                        history: [newEntry]
-                    };
-
-                    // Save to Mongo with POST
-                    const savedRecord = await manager.postDocument('remstats', record);
-
-                    // Store the MongoDB _id in mapping for future use
-                    if (savedRecord && savedRecord._id) {
-                        remoteStatsMapping[name] = savedRecord._id;
-                    }
-                }
-
-                // Update local state
-                remoteStats[name] = record;
-                renderSidebar();
-
-                // Refresh detail view if open
-                if (activeRemoteName === name) {
-                    selectRemote(name);
-                }
-
-                return record;
-            }
-            return null;
-        }
 
         async function updateTaskRemStats(jobId, path) {
             console.log(`Updating task remstats for ${jobId} at ${path}...`);
@@ -730,18 +623,6 @@
             return await manager.getDocument('taskremstats', statsId);
         }
 
-        async function handleUpdateRemoteStats(event, btn, name) {
-            event.stopPropagation();
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
-            btn.disabled = true;
-            try {
-                await updateRemoteStats(name);
-            } finally {
-                btn.innerHTML = originalHTML;
-                btn.disabled = false;
-            }
-        }
 
         async function saveJobToMongo(job) {
             try {
@@ -1063,120 +944,6 @@
                 browsePath(name + ':');
             };
             document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
-        }
-
-        let remoteCharts = {};
-
-        async function renderRemoteChart(remoteName, canvasId) {
-            try {
-                const canvas = document.getElementById(canvasId);
-                if (!canvas) {
-                    console.warn(`Canvas element ${canvasId} not found in DOM`);
-                    return;
-                }
-
-                const record = remoteStats[remoteName];
-                if (!record || !record.history || record.history.length === 0) {
-                     const ctx = canvas.getContext('2d');
-                     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-                     ctx.font = '14px Arial';
-                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                     ctx.textAlign = 'center';
-                     ctx.fillText('Nog geen geschiedenis beschikbaar', ctx.canvas.width / 2, ctx.canvas.height / 2);
-                     return;
-                }
-
-                const labels = record.history.map(h => h.date);
-                const sizeData = record.history.map(h => {
-                    const gb = h.size / 1024 / 1024 / 1024;
-                    // Check if mostly TB
-                    return gb; 
-                });
-                // Check if we should use TB or GB for axis
-                const maxGb = Math.max(...sizeData);
-                const useTb = maxGb >= 1000;
-                
-                const displayData = sizeData.map(gb => useTb ? gb / 1024 : gb);
-                const sizeUnit = useTb ? 'TB' : 'GB';
-
-                const countData = record.history.map(h => h.count);
-
-                if (remoteCharts[canvasId]) {
-                    remoteCharts[canvasId].destroy();
-                }
-
-                const ctx = canvas.getContext('2d');
-                remoteCharts[canvasId] = new Chart(ctx, {
-                    type: 'line',
-                    data: {
-                        labels: labels,
-                        datasets: [
-                            {
-                                label: `Grootte (${sizeUnit})`,
-                                data: displayData,
-                                backgroundColor: 'rgba(168, 85, 247, 0.2)',
-                                borderColor: 'rgba(168, 85, 247, 1)',
-                                borderWidth: 2,
-                                tension: 0.3,
-                                fill: true,
-                                yAxisID: 'y',
-                                order: 2
-                            },
-                            {
-                                label: 'Bestanden',
-                                data: countData,
-                                borderColor: 'rgba(74, 222, 128, 1)',
-                                backgroundColor: 'transparent',
-                                borderDash: [5, 5],
-                                borderWidth: 2,
-                                tension: 0.3,
-                                yAxisID: 'y1',
-                                order: 1
-                            }
-                        ]
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        interaction: { mode: 'index', intersect: false },
-                        plugins: {
-                            legend: { display: true, labels: { color: '#9ca3af' } },
-                            tooltip: {
-                                callbacks: {
-                                    label: function(context) {
-                                        if (context.dataset.yAxisID === 'y') {
-                                            return context.parsed.y.toFixed(2) + ' ' + sizeUnit;
-                                        }
-                                        return context.parsed.y + ' bestanden';
-                                    }
-                                }
-                            }
-                        },
-                        scales: {
-                            x: {
-                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                ticks: { color: '#9ca3af' }
-                            },
-                            y: {
-                                type: 'linear',
-                                display: true,
-                                position: 'left',
-                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                ticks: { color: '#a855f7', callback: (val) => val.toFixed(1) + ' ' + sizeUnit }
-                            },
-                            y1: {
-                                type: 'linear',
-                                display: true,
-                                position: 'right',
-                                grid: { drawOnChartArea: false },
-                                ticks: { color: '#4ade80' }
-                            }
-                        }
-                    }
-                });
-            } catch (e) {
-                console.error("Remote chart error:", e);
-            }
         }
 
         let taskRemStatsCharts = {}; // Store task remstats charts
@@ -1508,15 +1275,7 @@
                 
                 remoteNames.forEach(name => {
                     const config = configuredRemotes[name];
-                    const stats = remoteStats[name];
                     const host = config.host || (config.parameters && config.parameters.host) || '';
-                    const fmt = (bytes) => {
-                        const gb = bytes / 1024 / 1024 / 1024;
-                        if (gb >= 1000) {
-                            return (gb / 1024).toFixed(2) + ' TB';
-                        }
-                        return gb.toFixed(2) + ' GB';
-                    };
                     
                     const div = document.createElement('div');
                     div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-3 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
@@ -1538,10 +1297,6 @@
                              <button onclick="event.stopPropagation(); editRemote('${name}')"
                                      class="bg-orange-900/30 hover:bg-orange-600 text-orange-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-orange-800/30 uppercase">
                                 <i class="fa-solid fa-edit"></i> WIJZIG
-                            </button>
-                             <button onclick="handleUpdateRemoteStats(event, this, '${name}')"
-                                     class="flex-1 bg-blue-900/30 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[9px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30 uppercase">
-                                <i class="fa-solid fa-calculator"></i> BEREKEN
                             </button>
                         </div>
                     `;
@@ -2568,4 +2323,5 @@
         rcloneRequest('core/version').then(res => updateStatus(!!res));
     </script>
 </body>
+</html>
 </html>
