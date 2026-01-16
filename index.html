@@ -254,30 +254,17 @@
                             </div>
                         </div>
 
-                        <!-- Stats History Chart -->
-                        <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
-                             <div class="flex justify-between items-center mb-6">
-                                 <h4 class="font-bold text-white flex items-center gap-2">
-                                     <i class="fa-solid fa-chart-line text-blue-400"></i> Historisch Gebruik (90 dagen)
-                                 </h4>
-                                 <div class="flex gap-4 text-[10px] uppercase font-bold tracking-wider">
-                                     <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-blue-500"></span> Grootte (GB)</div>
-                                     <div class="flex items-center gap-1.5"><span class="w-2 h-2 rounded-full bg-green-400"></span> Bestanden</div>
-                                 </div>
-                             </div>
-                             <div class="h-64 relative">
-                                 <canvas id="remoteHistoryChart"></canvas>
-                             </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-6">
+                        <!-- Gekoppelde Taken met individuele Charts -->
+                        <div class="space-y-6">
                             <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
-                                 <h4 class="font-bold text-white mb-4">Gekoppelde Taken</h4>
-                                 <div id="remoteLinkedJobs" class="space-y-2">
-                                     <!-- Linked jobs rendered here -->
+                                 <h4 class="font-bold text-white mb-4 flex items-center gap-2">
+                                     <i class="fa-solid fa-tasks text-blue-400"></i> Gekoppelde Taken
+                                 </h4>
+                                 <div id="remoteLinkedJobsWithCharts" class="space-y-6">
+                                     <!-- Linked jobs with charts rendered here -->
                                  </div>
                             </div>
-                            
+
                             <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
                                  <h4 class="font-bold text-white mb-4">Configuratie</h4>
                                  <pre id="remoteConfigDump" class="text-[10px] text-gray-400 font-mono bg-darkbg p-4 rounded overflow-x-auto max-h-48"></pre>
@@ -449,7 +436,7 @@
     <script src="mongo_manager.js"></script>
     <script>
         // --- CONSTANTS ---
-        const APP_NAME = 'appnaam';
+        const APP_NAME = 'rclone';
         const CLIENT_ID = 'sandman';
         const API_URL = 'http://10.10.2.20:5000';
 
@@ -830,30 +817,50 @@
             document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
             document.getElementById('remoteConfigDump').innerText = JSON.stringify(remoteConfig, null, 2);
 
-            // Render linked jobs
-            const linkedJobsEl = document.getElementById('remoteLinkedJobs');
-            const linkedJobs = jobs.filter(j => 
-                (j.source && j.source.startsWith(name + ':')) || 
+            // Render linked jobs with individual charts
+            const linkedJobsEl = document.getElementById('remoteLinkedJobsWithCharts');
+            const linkedJobs = jobs.filter(j =>
+                (j.source && j.source.startsWith(name + ':')) ||
                 (j.dest && j.dest.startsWith(name + ':'))
             );
-            
+
             if (linkedJobs.length > 0) {
                 linkedJobsEl.innerHTML = '';
-                linkedJobs.forEach(job => {
-                    const div = document.createElement('div');
-                    div.className = "p-3 bg-darkbg border border-darkborder rounded hover:border-gray-500 cursor-pointer transition flex justify-between items-center";
-                    div.onclick = () => {
+                linkedJobs.forEach(async (job, index) => {
+                    const jobDiv = document.createElement('div');
+                    jobDiv.className = "border border-darkborder rounded-lg overflow-hidden";
+
+                    // Job header
+                    const headerDiv = document.createElement('div');
+                    headerDiv.className = "p-4 bg-darkbg border-b border-darkborder flex justify-between items-center cursor-pointer hover:bg-darkborder/50 transition";
+                    headerDiv.onclick = () => {
                          showSection('backups');
                          selectJob(job.id);
                     };
-                    div.innerHTML = `
-                        <div class="font-bold text-sm text-gray-300">${job.name}</div>
+                    headerDiv.innerHTML = `
+                        <div>
+                            <div class="font-bold text-white">${job.name}</div>
+                            <div class="text-xs text-gray-400 font-mono">${job.source || job.dest}</div>
+                        </div>
                         <i class="fa-solid fa-arrow-right text-gray-600"></i>
                     `;
-                    linkedJobsEl.appendChild(div);
+
+                    // Chart container
+                    const chartDiv = document.createElement('div');
+                    chartDiv.className = "p-4 h-48 relative";
+                    const canvas = document.createElement('canvas');
+                    canvas.id = `jobChart-${job.id}`;
+                    chartDiv.appendChild(canvas);
+
+                    jobDiv.appendChild(headerDiv);
+                    jobDiv.appendChild(chartDiv);
+                    linkedJobsEl.appendChild(jobDiv);
+
+                    // Render individual job chart
+                    await renderJobChart(job, canvas.id);
                 });
             } else {
-                linkedJobsEl.innerHTML = '<div class="text-sm text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
+                linkedJobsEl.innerHTML = '<div class="text-center py-8 text-gray-500 italic">Geen taken gekoppeld aan deze remote.</div>';
             }
 
             document.getElementById('btnBrowseRemote').onclick = () => {
@@ -866,6 +873,110 @@
             renderRemoteHistoryChart(name);
         }
 
+        let jobCharts = {}; // Store individual job charts
+
+        async function renderJobChart(job, canvasId) {
+            try {
+                // Get job history data
+                const jobHistory = await manager.getSmartCollection('jobstats');
+                const jobStats = jobHistory
+                    .filter(s => s.jobId === job.id)
+                    .sort((a, b) => new Date(a.date) - new Date(b.date));
+
+                // Filter last 30 days for individual jobs
+                const thirtyDaysAgo = new Date();
+                thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+                const filteredStats = jobStats.filter(s => new Date(s.date) >= thirtyDaysAgo);
+
+                if (filteredStats.length === 0) {
+                    const ctx = document.getElementById(canvasId).getContext('2d');
+                    ctx.font = '12px Arial';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('Geen data beschikbaar', 150, 50);
+                    return;
+                }
+
+                const labels = filteredStats.map(s => s.date);
+                const sizeData = filteredStats.map(s => {
+                    const gb = s.size / 1024 / 1024 / 1024;
+                    return gb >= 1000 ? (gb / 1024) : gb;
+                });
+                const countData = filteredStats.map(s => s.count);
+
+                // Destroy existing chart if it exists
+                if (jobCharts[canvasId]) {
+                    jobCharts[canvasId].destroy();
+                }
+
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                jobCharts[canvasId] = new Chart(ctx, {
+                    type: 'bar',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'Grootte',
+                                data: sizeData,
+                                backgroundColor: 'rgba(59, 130, 246, 0.6)',
+                                borderColor: 'rgba(59, 130, 246, 1)',
+                                borderWidth: 1,
+                                borderRadius: 2,
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                type: 'line',
+                                borderColor: 'rgba(74, 222, 128, 1)',
+                                backgroundColor: 'rgba(74, 222, 128, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: false,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.datasetIndex === 0) {
+                                            const value = context.parsed.y;
+                                            return value >= 1000 ? (value / 1000).toFixed(2) + ' TB' : value.toFixed(2) + ' GB';
+                                        }
+                                        return context.parsed.y + ' bestanden';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: false,
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                            },
+                            y: {
+                                display: false,
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                            },
+                            y1: {
+                                display: false,
+                                position: 'right',
+                                grid: { drawOnChartArea: false }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to render job chart:", e);
+            }
+        }
+
         async function renderRemoteHistoryChart(name) {
             try {
                 // Fetch all stats for this remote
@@ -873,14 +984,17 @@
                 const history = allStats
                     .filter(s => s.remote === name)
                     .sort((a, b) => new Date(a.date) - new Date(b.date));
-                
+
                 // Filter last 90 days
                 const ninetyDaysAgo = new Date();
                 ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
                 const filteredHistory = history.filter(s => new Date(s.date) >= ninetyDaysAgo);
 
                 const labels = filteredHistory.map(s => s.date);
-                const sizeData = filteredHistory.map(s => (s.size / 1024 / 1024 / 1024).toFixed(2));
+                const sizeData = filteredHistory.map(s => {
+                    const gb = s.size / 1024 / 1024 / 1024;
+                    return gb >= 1000 ? (gb / 1024) : gb;
+                });
                 const countData = filteredHistory.map(s => s.count);
 
                 if (remoteChart) remoteChart.destroy();
@@ -892,7 +1006,7 @@
                         labels: labels,
                         datasets: [
                             {
-                                label: 'Grootte (GB)',
+                                label: 'Grootte',
                                 data: sizeData,
                                 backgroundColor: 'rgba(59, 130, 246, 0.4)',
                                 borderColor: 'rgba(59, 130, 246, 1)',
@@ -918,7 +1032,18 @@
                         responsive: true,
                         maintainAspectRatio: false,
                         plugins: {
-                            legend: { display: false }
+                            legend: { display: false },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.datasetIndex === 0) {
+                                            const value = context.parsed.y;
+                                            return value >= 1000 ? (value / 1000).toFixed(2) + ' TB' : value.toFixed(2) + ' GB';
+                                        }
+                                        return context.parsed.y + ' bestanden';
+                                    }
+                                }
+                            }
                         },
                         scales: {
                             x: {
@@ -927,8 +1052,14 @@
                             },
                             y: {
                                 grid: { color: 'rgba(255, 255, 255, 0.05)' },
-                                ticks: { color: 'rgba(255, 255, 255, 0.5)', font: { size: 10 } },
-                                title: { display: true, text: 'Grootte (GB)', color: 'rgba(255, 255, 255, 0.3)', font: { size: 10 } }
+                                ticks: {
+                                    color: 'rgba(255, 255, 255, 0.5)',
+                                    font: { size: 10 },
+                                    callback: function(value) {
+                                        return value >= 1000 ? (value / 1000).toFixed(1) + 'TB' : value.toFixed(1) + 'GB';
+                                    }
+                                },
+                                title: { display: true, text: 'Grootte (GB/TB)', color: 'rgba(255, 255, 255, 0.3)', font: { size: 10 } }
                             },
                             y1: {
                                 position: 'right',
@@ -998,7 +1129,13 @@
                     const config = configuredRemotes[name];
                     const stats = remoteStats[name];
                     const host = config.host || (config.parameters && config.parameters.host) || '';
-                    const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                    const fmt = (bytes) => {
+                        const gb = bytes / 1024 / 1024 / 1024;
+                        if (gb >= 1000) {
+                            return (gb / 1024).toFixed(2) + ' TB';
+                        }
+                        return gb.toFixed(2) + ' GB';
+                    };
                     
                     const div = document.createElement('div');
                     div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-3 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
@@ -1014,28 +1151,7 @@
                             </div>
                         </div>
                         
-                        ${host ? `<div class="text-xs font-mono text-cyan-400/80 truncate opacity-70">${host}</div>` : ''}
-
-                        <div class="flex flex-col gap-1 border-t border-darkborder pt-2 mt-1">
-                            <div class="flex justify-between items-center text-[10px] text-gray-400">
-                                <span>GEBRUIK</span>
-                                <span class="font-bold text-gray-200">${stats ? fmt(stats.size) : '-'}</span>
-                            </div>
-                            ${stats && stats.total ? `
-                            <div class="flex justify-between items-center text-[10px] text-gray-400">
-                                <span>TOTAAL</span>
-                                <span class="font-bold text-gray-200">${fmt(stats.total)}</span>
-                            </div>
-                            <div class="flex justify-between items-center text-[10px] text-gray-400">
-                                <span>VRIJ</span>
-                                <span class="font-bold text-green-400">${fmt(stats.free)}</span>
-                            </div>
-                            ` : ''}
-                            <div class="flex justify-between items-center text-[10px] text-gray-400">
-                                <span>BESTANDEN</span>
-                                <span class="font-bold text-gray-200">${stats ? stats.count : '-'}</span>
-                            </div>
-                        </div>
+                        ${host ? `<div class="text-lg font-mono text-cyan-400 truncate font-bold">${host}</div>` : '<div class="text-sm text-gray-500 italic">Geen IP adres</div>'}
 
                         <div class="flex gap-2">
                              <button onclick="handleUpdateRemoteStats(event, this, '${name}')" 
