@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Rclone Manager - Backup & Mount v1.1</title>
+    <title>Rclone Manager - Backup & Mount</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -500,17 +500,28 @@
                 // Fetch latest remote stats
                 const allStats = await manager.getSmartCollection('remstats');
                 if (Array.isArray(allStats)) {
-                    // Group by remote and find latest for each
                     remoteStats = {};
-                    allStats.forEach(s => {
-                        if (!remoteStats[s.remote] || new Date(s.date) > new Date(remoteStats[s.remote].date)) {
-                            remoteStats[s.remote] = s;
+                    allStats.forEach(doc => {
+                        // Support consolidated structure (single record for all remotes)
+                        if (doc.remotes && typeof doc.remotes === 'object') {
+                            // New consolidated structure - single record with all remotes
+                            Object.keys(doc.remotes).forEach(remoteName => {
+                                remoteStats[remoteName] = doc.remotes[remoteName];
+                            });
+                        } else if (doc.history && Array.isArray(doc.history)) {
+                            // Legacy structure (single remote per document)
+                            remoteStats[doc.remote || doc._id] = doc;
                         }
                     });
                 }
                 
                 renderSidebar();
                 checkDailyStatsSync();
+
+                // Refresh chart if a remote is currently selected
+                if (activeRemoteName && remoteStats[activeRemoteName]) {
+                    renderRemoteChart(activeRemoteName, 'remoteHistoryChart');
+                }
             } catch (e) {
                 console.warn("Server sync failed:", e);
                 // Optionally handle offline state here if needed
@@ -541,32 +552,65 @@
 
         async function updateRemoteStats(name) {
             console.log(`Updating stats for ${name}...`);
-            
+
             // Try operations/about first for disk info
             const about = await rcloneRequest('operations/about', { fs: name + ':' });
             // Then operations/size for file count and accurate usage
             const size = await rcloneRequest('operations/size', { fs: name + ':' });
-            
+
             if (size || about) {
                 const today = new Date().toISOString().split('T')[0];
-                const statsObj = {
-                    remote: name,
+                const newEntry = {
                     date: today,
                     size: size ? size.bytes : (about ? about.used : 0),
                     count: size ? size.count : 0,
                     total: about ? about.total : null,
                     free: about ? about.free : null,
-                    _id: `${name}_${today}` // Use _id to allow updates if already exists for today
+                    remote: name
                 };
-                
+
+                // Fetch the consolidated remstats record (single record for all remotes)
+                // First, try to find existing consolidated record by checking all documents
+                const allRemstatsDocs = await manager.getSmartCollection('remstats');
+                let consolidatedRecord = null;
+                if (Array.isArray(allRemstatsDocs)) {
+                    consolidatedRecord = allRemstatsDocs.find(doc => doc.remotes && typeof doc.remotes === 'object');
+                }
+
+                if (!consolidatedRecord) {
+                    consolidatedRecord = {
+                        remotes: {}
+                    };
+                }
+
+                if (!consolidatedRecord.remotes) consolidatedRecord.remotes = {};
+
+                // Initialize remote entry if it doesn't exist
+                if (!consolidatedRecord.remotes[name]) {
+                    consolidatedRecord.remotes[name] = {
+                        remote: name,
+                        history: []
+                    };
+                }
+
+                // Remove today's entry if exists (overwrite)
+                consolidatedRecord.remotes[name].history = consolidatedRecord.remotes[name].history.filter(h => h.date !== today);
+                consolidatedRecord.remotes[name].history.push(newEntry);
+                consolidatedRecord.remotes[name].history.sort((a, b) => new Date(a.date) - new Date(b.date));
+
                 // Save to Mongo
-                await manager.saveSmartDocument('remstats', statsObj);
-                
+                await manager.saveSmartDocument('remstats', consolidatedRecord);
+
                 // Update local state
-                remoteStats[name] = statsObj;
+                remoteStats[name] = consolidatedRecord.remotes[name];
                 renderSidebar();
-                
-                return statsObj;
+
+                // Refresh detail view if open
+                if (activeRemoteName === name) {
+                    selectRemote(name);
+                }
+
+                return consolidatedRecord.remotes[name];
             }
             return null;
         }
@@ -803,6 +847,38 @@
             document.getElementById('remoteDetailTitle').innerText = name;
             document.getElementById('remoteDetailType').innerText = `Type: ${remoteConfig.type}`;
 
+            // --- History Chart ---
+            const chartContainer = document.getElementById('remoteHistoryChartContainer');
+            if (chartContainer) {
+                // If container exists (e.g. from static HTML or previous render), use it
+                // But actually I should create it dynamically or have it in static HTML.
+                // Let's create it dynamically in linkedJobsEl? No, that's for jobs.
+                // I should add a container in the static HTML or inject it here.
+                // Let's inject it into `remoteDetailContent`.
+            }
+            
+            // Inject Chart Container if not exists
+            let historySection = document.getElementById('remoteHistorySection');
+            if (!historySection) {
+                historySection = document.createElement('div');
+                historySection.id = 'remoteHistorySection';
+                historySection.className = 'bg-darkcard p-6 rounded-xl border border-darkborder';
+                historySection.innerHTML = `
+                    <h4 class="font-bold text-white mb-4 flex items-center gap-2">
+                        <i class="fa-solid fa-chart-line text-blue-400"></i> Gebruikshistorie
+                    </h4>
+                    <div class="h-64 w-full relative">
+                        <canvas id="remoteHistoryChart"></canvas>
+                    </div>
+                `;
+                // Insert before linked jobs
+                const linkedJobsContainer = document.getElementById('remoteLinkedJobsWithCharts').parentNode;
+                linkedJobsContainer.parentNode.insertBefore(historySection, linkedJobsContainer);
+            }
+            
+            // Render Chart
+            await renderRemoteChart(name, 'remoteHistoryChart');
+
             // Render linked jobs with individual charts
             const linkedJobsEl = document.getElementById('remoteLinkedJobsWithCharts');
             const linkedJobs = jobs.filter(j =>
@@ -854,6 +930,114 @@
                 browsePath(name + ':');
             };
             document.getElementById('btnDeleteRemote').onclick = () => deleteRemote(name);
+        }
+
+        let remoteCharts = {};
+
+        async function renderRemoteChart(remoteName, canvasId) {
+            try {
+                const record = remoteStats[remoteName];
+                if (!record || !record.history || record.history.length === 0) {
+                     const ctx = document.getElementById(canvasId).getContext('2d');
+                     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                     ctx.font = '14px Arial';
+                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                     ctx.textAlign = 'center';
+                     ctx.fillText('Nog geen geschiedenis beschikbaar', ctx.canvas.width / 2, ctx.canvas.height / 2);
+                     return;
+                }
+
+                const labels = record.history.map(h => h.date);
+                const sizeData = record.history.map(h => {
+                    const gb = h.size / 1024 / 1024 / 1024;
+                    // Check if mostly TB
+                    return gb; 
+                });
+                // Check if we should use TB or GB for axis
+                const maxGb = Math.max(...sizeData);
+                const useTb = maxGb >= 1000;
+                
+                const displayData = sizeData.map(gb => useTb ? gb / 1024 : gb);
+                const sizeUnit = useTb ? 'TB' : 'GB';
+
+                const countData = record.history.map(h => h.count);
+
+                if (remoteCharts[canvasId]) {
+                    remoteCharts[canvasId].destroy();
+                }
+
+                const ctx = document.getElementById(canvasId).getContext('2d');
+                remoteCharts[canvasId] = new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: `Grootte (${sizeUnit})`,
+                                data: displayData,
+                                backgroundColor: 'rgba(168, 85, 247, 0.2)',
+                                borderColor: 'rgba(168, 85, 247, 1)',
+                                borderWidth: 2,
+                                tension: 0.3,
+                                fill: true,
+                                yAxisID: 'y',
+                                order: 2
+                            },
+                            {
+                                label: 'Bestanden',
+                                data: countData,
+                                borderColor: 'rgba(74, 222, 128, 1)',
+                                backgroundColor: 'transparent',
+                                borderDash: [5, 5],
+                                borderWidth: 2,
+                                tension: 0.3,
+                                yAxisID: 'y1',
+                                order: 1
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: { mode: 'index', intersect: false },
+                        plugins: {
+                            legend: { display: true, labels: { color: '#9ca3af' } },
+                            tooltip: {
+                                callbacks: {
+                                    label: function(context) {
+                                        if (context.dataset.yAxisID === 'y') {
+                                            return context.parsed.y.toFixed(2) + ' ' + sizeUnit;
+                                        }
+                                        return context.parsed.y + ' bestanden';
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            y: {
+                                type: 'linear',
+                                display: true,
+                                position: 'left',
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: { color: '#a855f7', callback: (val) => val.toFixed(1) + ' ' + sizeUnit }
+                            },
+                            y1: {
+                                type: 'linear',
+                                display: true,
+                                position: 'right',
+                                grid: { drawOnChartArea: false },
+                                ticks: { color: '#4ade80' }
+                            }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Remote chart error:", e);
+            }
         }
 
         let jobCharts = {}; // Store individual job charts
