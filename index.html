@@ -136,8 +136,16 @@
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
                             <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Overgedragen</div>
-                            <div id="statBytes" class="text-xl font-bold mt-1 text-blue-400">0 MB</div>
-                            <div id="statTotalBytes" class="text-xl font-bold mt-1text-blue-200 mt-1">van ?</div>
+                            <div class="mt-1">
+                                <div class="flex items-center justify-center gap-2 mb-2">
+                                    <span id="statBytes" class="text-xl font-bold text-blue-400">0 MB</span>
+                                    <span class="text-lg text-gray-400">/</span>
+                                    <span id="statTotalBytes" class="text-xl font-bold text-blue-200">?</span>
+                                </div>
+                                <div class="w-full bg-darkbg rounded-full h-2 overflow-hidden">
+                                    <div id="statProgressBar" class="bg-rclone h-full rounded-full transition-all duration-300" style="width: 0%"></div>
+                                </div>
+                            </div>
                         </div>
                         <div class="bg-darkcard p-4 rounded-xl border border-darkborder">
                             <div class="text-xs text-gray-500 uppercase font-bold tracking-wider">Bestanden (Copy/Skip)</div>
@@ -1555,20 +1563,47 @@
                 const lastRun = getLastRunTime(job);
                 const nextRun = getNextScheduledRun(job);
 
-                // Check if this job is currently active and show progress
+                // Show progress bar for active job or empty state for inactive jobs
                 const isActiveJob = activeJobId === job.id && activeRcloneJobId !== null;
-                const progressHtml = isActiveJob && activeJobProgress.totalBytes > 0 ? `
-                    <div class="mt-2">
-                        <div class="flex justify-between text-[8px] text-gray-400 mb-1">
-                            <span>${(activeJobProgress.bytes / 1024 / 1024).toFixed(1)} MB</span>
-                            <span>${(activeJobProgress.totalBytes / 1024 / 1024).toFixed(1)} MB</span>
+                let progressHtml = '';
+
+                if (isActiveJob && activeJobProgress.totalBytes > 0) {
+                    progressHtml = `
+                        <div class="mt-2">
+                            <div class="flex justify-between text-[8px] text-gray-400 mb-1">
+                                <span>${(activeJobProgress.bytes / 1024 / 1024).toFixed(1)} MB</span>
+                                <span>${(activeJobProgress.totalBytes / 1024 / 1024).toFixed(1)} MB</span>
+                            </div>
+                            <div class="w-full bg-darkbg rounded-full h-1.5 overflow-hidden">
+                                <div class="bg-rclone h-full rounded-full transition-all duration-300" style="width: ${Math.min(activeJobProgress.percentage, 100)}%"></div>
+                            </div>
+                            <div class="text-center text-[8px] text-gray-500 mt-0.5">${activeJobProgress.percentage.toFixed(1)}%</div>
                         </div>
-                        <div class="w-full bg-darkbg rounded-full h-1.5 overflow-hidden">
-                            <div class="bg-rclone h-full rounded-full transition-all duration-300" style="width: ${Math.min(activeJobProgress.percentage, 100)}%"></div>
+                    `;
+                } else if (isActiveJob) {
+                    // Active job but no progress yet
+                    progressHtml = `
+                        <div class="mt-2">
+                            <div class="text-center text-[8px] text-gray-500">Bezig met initialiseren...</div>
                         </div>
-                        <div class="text-center text-[8px] text-gray-500 mt-0.5">${activeJobProgress.percentage.toFixed(1)}%</div>
-                    </div>
-                ` : '';
+                    `;
+                } else {
+                    // Inactive job - show last progress if available
+                    const lastProgress = getLastJobProgress(job);
+                    if (lastProgress && lastProgress.totalBytes > 0) {
+                        progressHtml = `
+                            <div class="mt-2 opacity-60">
+                                <div class="flex justify-between text-[8px] text-gray-500 mb-1">
+                                    <span>${(lastProgress.bytes / 1024 / 1024).toFixed(1)} MB</span>
+                                    <span>${(lastProgress.totalBytes / 1024 / 1024).toFixed(1)} MB</span>
+                                </div>
+                                <div class="w-full bg-darkbg/50 rounded-full h-1 overflow-hidden">
+                                    <div class="bg-gray-600 h-full rounded-full" style="width: ${Math.min(lastProgress.percentage, 100)}%"></div>
+                                </div>
+                            </div>
+                        `;
+                    }
+                }
 
                 const div = document.createElement('div');
                 div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-2 ${activeJobId === job.id ? 'bg-darkcard border-rclone shadow-lg shadow-rclone/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
@@ -1632,12 +1667,18 @@
             document.getElementById('statStatus').innerText = "Gereed";
             document.getElementById('statStatus').className = "text-xl font-bold mt-1 text-gray-400";
             document.getElementById('statBytes').innerText = "0 MB";
-            document.getElementById('statTotalBytes').innerText = "";
+            document.getElementById('statTotalBytes').innerText = "?";
             document.getElementById('statFiles').innerText = "0";
             document.getElementById('statSpeed').innerText = "-";
             document.getElementById('statTime').innerText = "0s";
             document.getElementById('statErrors').innerText = "";
             document.getElementById('statEta').innerText = "ETA: -";
+
+            // Reset progress bar
+            const progressBar = document.getElementById('statProgressBar');
+            if (progressBar) {
+                progressBar.style.width = '0%';
+            }
             document.getElementById('activeTransfersSection').classList.add('hidden');
             document.getElementById('transferTableBody').innerHTML = '';
 
@@ -1706,6 +1747,37 @@
             } catch (e) {
                 return null;
             }
+        }
+
+        function getLastJobProgress(job) {
+            if (!job.history || job.history.length === 0) return null;
+
+            // Find the last successful run with size information
+            const lastRun = job.history.find(log =>
+                log.status === 'Succes' && log.size && parseFloat(log.size) > 0
+            );
+
+            if (!lastRun) return null;
+
+            // Extract bytes from size string (e.g., "150.5 MB" -> 150.5 * 1024 * 1024)
+            const sizeMatch = lastRun.size.match(/([\d.]+)\s*(MB|GB|TB)/i);
+            if (!sizeMatch) return null;
+
+            const [, size, unit] = sizeMatch;
+            let bytes = parseFloat(size);
+
+            // Convert to bytes
+            switch (unit.toUpperCase()) {
+                case 'GB': bytes *= 1024 * 1024 * 1024; break;
+                case 'TB': bytes *= 1024 * 1024 * 1024 * 1024; break;
+                default: bytes *= 1024 * 1024; // MB
+            }
+
+            return {
+                bytes: bytes,
+                totalBytes: bytes, // Last run was 100% complete
+                percentage: 100
+            };
         }
 
         function renderHistory(job) {
@@ -2265,6 +2337,12 @@
                     activeJobProgress.totalBytes = statsRes.totalBytes || 0;
                     activeJobProgress.percentage = statsRes.totalBytes > 0 ? (statsRes.bytes / statsRes.totalBytes) * 100 : 0;
 
+                    // Update stats grid progress bar
+                    const progressBar = document.getElementById('statProgressBar');
+                    if (progressBar) {
+                        progressBar.style.width = Math.min(activeJobProgress.percentage, 100) + '%';
+                    }
+
                     // Handle Active Transfers
                     if (type === 'sync' && statsRes.transferring && statsRes.transferring.length > 0) {
                         activeTransfersSection.classList.remove('hidden');
@@ -2332,9 +2410,16 @@
                             uiStatus.innerText = "-";
                             uiStatus.className = "text-xl font-bold mt-1";
                             document.getElementById('statBytes').innerText = "0 MB";
+                            document.getElementById('statTotalBytes').innerText = "?";
                             document.getElementById('statSpeed').innerText = "-";
                             document.getElementById('statFiles').innerText = "0 / 0";
                             document.getElementById('statTime').innerText = "0s";
+
+                            // Reset progress bar
+                            const progressBar = document.getElementById('statProgressBar');
+                            if (progressBar) {
+                                progressBar.style.width = '0%';
+                            }
                         }
                         renderHistory(jobs.find(j => j.id === internalJobId));
                     }
