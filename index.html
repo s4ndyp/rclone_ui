@@ -782,24 +782,39 @@
             const about = await rcloneRequest('operations/about', { fs: name + ':' });
             const fmt = (bytes) => (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
 
-            if (about) {
+            const usedEl = document.getElementById('remoteStatUsed');
+
+            // Check if about returns valid numbers. SMB often returns {} (empty object) or undefined.
+            if (about && typeof about.total === 'number') {
                 document.getElementById('remoteStatTotal').innerText = about.total ? fmt(about.total) : '-';
-                document.getElementById('remoteStatUsed').innerText = about.used ? fmt(about.used) : '-';
+                usedEl.innerText = about.used ? fmt(about.used) : '-';
                 document.getElementById('remoteStatFree').innerText = about.free ? fmt(about.free) : '-';
             } else {
-                // Fallback for remotes that don't support 'about' (like SMB sometimes)
-                // Try operations/size to at least get used bytes and file count
-                const size = await rcloneRequest('operations/size', { fs: name + ':' });
-                if (size) {
-                    document.getElementById('remoteStatTotal').innerText = '-';
-                    document.getElementById('remoteStatUsed').innerText = size.bytes ? `${fmt(size.bytes)} (${size.count} bestanden)` : '-';
-                    document.getElementById('remoteStatFree').innerText = '-';
-                } else {
-                    document.getElementById('remoteStatTotal').innerText = '-';
-                    document.getElementById('remoteStatUsed').innerText = '-';
-                    document.getElementById('remoteStatFree').innerText = '-';
-                    document.getElementById('remoteStatError').classList.remove('hidden');
-                }
+                document.getElementById('remoteStatTotal').innerText = '-';
+                usedEl.innerText = '-';
+                document.getElementById('remoteStatFree').innerText = '-';
+                
+                // Show Calculate Size button for fallback or SMB
+                usedEl.innerHTML = ''; // Clear placeholder
+                
+                const btn = document.createElement('button');
+                btn.className = "text-xs bg-blue-900 hover:bg-blue-700 text-blue-200 px-3 py-1 rounded transition flex items-center gap-2";
+                btn.innerHTML = '<i class="fa-solid fa-calculator"></i> Bereken gebruik';
+                btn.onclick = async (e) => {
+                    e.stopPropagation();
+                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Bezig...';
+                    btn.disabled = true;
+                    
+                    const size = await rcloneRequest('operations/size', { fs: name + ':' });
+                    if (size) {
+                        usedEl.innerHTML = '';
+                        usedEl.innerText = size.bytes ? `${fmt(size.bytes)} (${size.count} bestanden)` : '0 B';
+                    } else {
+                        btn.innerHTML = '<i class="fa-solid fa-exclamation-triangle"></i> Fout';
+                        btn.classList.add('bg-red-900', 'text-red-200');
+                    }
+                };
+                usedEl.appendChild(btn);
             }
         }
 
@@ -1330,15 +1345,35 @@
                     
                     // Let's strip the remote prefix if present to make it cleaner
                     let excludePattern = selectedPath;
-                    const colonIdx = selectedPath.indexOf(':');
-                    if (colonIdx !== -1) {
-                         excludePattern = selectedPath.substring(colonIdx + 1);
+                    
+                    // Logic to strip the source root from the path to make it relative for filter
+                    const sourceVal = document.getElementById('jobSource').value;
+                    
+                    // If sourceVal is something like "RNAZ:ssd/s" and selectedPath is "RNAZ:ssd/s/dexie.js"
+                    // We want "/dexie.js"
+                    
+                    if (sourceVal && selectedPath.startsWith(sourceVal)) {
+                        // Check if it's an exact match or followed by slash
+                        if (selectedPath.length > sourceVal.length) {
+                             // Get the part after the source path
+                             let relativePath = selectedPath.substring(sourceVal.length);
+                             // Ensure it starts with /
+                             if (!relativePath.startsWith('/')) relativePath = '/' + relativePath;
+                             excludePattern = relativePath;
+                        } else if (selectedPath === sourceVal) {
+                             // Trying to exclude the root itself? That's weird.
+                             excludePattern = "/"; 
+                        }
+                    } else {
+                        // Fallback: strip remote name if we can't match against source
+                        const colonIdx = selectedPath.indexOf(':');
+                        if (colonIdx !== -1) {
+                             excludePattern = selectedPath.substring(colonIdx + 1);
+                        }
                     }
                     
-                    // If it starts with slash, remove it for cleaner relative match, or keep?
-                    // Rclone filters are often relative to root of transfer.
-                    // Safe bet: just use path. User can edit.
-                    if (excludePattern.startsWith('/')) excludePattern = excludePattern.substring(1);
+                    // Ensure it starts with / to anchor to root of transfer
+                    if (!excludePattern.startsWith('/')) excludePattern = '/' + excludePattern;
                     
                     const textArea = document.getElementById(targetInputId);
                     const currentVal = textArea.value;
@@ -1410,7 +1445,18 @@
 
             // Add Excludes via _filter
             if (job.excludes && job.excludes.length > 0) {
-                params._filter = { 'ExcludeRule': job.excludes };
+                // Normalize excludes to be relative to srcFs as rclone expects
+                const normalizedExcludes = job.excludes.map(pattern => {
+                    let p = pattern;
+                    // If pattern starts with the srcFs, strip it
+                    if (p.startsWith(job.source)) {
+                        p = p.substring(job.source.length);
+                    }
+                    // Ensure it starts with / to anchor to the root of the transfer
+                    if (!p.startsWith('/')) p = '/' + p;
+                    return p;
+                });
+                params._filter = { 'ExcludeRule': normalizedExcludes };
             }
             
             // For Sync/Copy we want stats
