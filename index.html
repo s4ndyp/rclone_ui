@@ -366,7 +366,12 @@
                     
                     <div>
                          <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Excludes (één per regel of wildcard)</label>
-                         <textarea id="jobExcludes" rows="3" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono text-xs" placeholder="*.tmp&#10;System Volume Information/**&#10;.DS_Store"></textarea>
+                         <div class="flex gap-2">
+                             <textarea id="jobExcludes" rows="3" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white font-mono text-xs" placeholder="*.tmp&#10;System Volume Information/**&#10;.DS_Store"></textarea>
+                             <button type="button" onclick="openPathSelector('jobExcludes', true)" class="bg-darkborder hover:bg-gray-700 px-4 rounded-lg text-sm transition h-auto">
+                                <i class="fa-solid fa-folder-tree"></i>
+                            </button>
+                         </div>
                          <p class="text-[10px] text-gray-500 mt-1">Gebruik wildcards zoals *.log of map/**</p>
                     </div>
                 
@@ -940,6 +945,19 @@
             renderHistory(job);
         }
 
+        function getStatusColor(log) {
+            if (log.type === 'check') {
+                const res = log.checkResult || {};
+                const hasIssues = (res.differ && res.differ.length > 0) || 
+                                  (res.missingOnSrc && res.missingOnSrc.length > 0) || 
+                                  (res.missingOnDst && res.missingOnDst.length > 0) ||
+                                  (res.difference && res.difference.length > 0); // Fallback
+                
+                return hasIssues ? 'bg-orange-900 text-orange-200' : 'bg-green-900 text-green-200';
+            }
+            return log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200';
+        }
+
         function renderHistory(job) {
             const tbody = document.getElementById('historyTableBody');
             const thead = document.querySelector('#historyTableBody').previousElementSibling;
@@ -973,7 +991,7 @@
                 tr.innerHTML = `
                     <td class="p-4 text-gray-300 whitespace-nowrap">${log.date}</td>
                     <td class="p-4 text-gray-400">${log.duration || '-'}</td>
-                    <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">${log.status}</span></td>
+                    <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${getStatusColor(log)}">${log.status}</span></td>
                     <td class="p-4 text-right text-gray-400 font-mono">${log.speed || '-'}</td>
                     <td class="p-4 text-right text-gray-300 font-mono">${log.size || '-'}</td>
                     <td class="p-4 text-right text-gray-400 font-mono">${log.files || '-'}</td>
@@ -1165,16 +1183,29 @@
         }
 
         let targetInputId = null;
+        let isExcludeSelector = false;
 
-        async function openPathSelector(inputId) {
+        async function openPathSelector(inputId, isExclude = false) {
             targetInputId = inputId;
-            document.getElementById('selectorPath').value = document.getElementById(inputId).value;
+            isExcludeSelector = isExclude;
+            
+            // For excludes, we don't load the initial value into the selector path 
+            // because it's a textarea with multiple lines. We start fresh or from source.
+            if (!isExclude) {
+                 document.getElementById('selectorPath').value = document.getElementById(inputId).value;
+            } else {
+                // Try to guess a starting path from the Source input
+                const sourceVal = document.getElementById('jobSource').value;
+                document.getElementById('selectorPath').value = sourceVal || '';
+            }
+
             document.getElementById('pathSelectorModal').classList.remove('hidden');
             await browseSelectorPath();
         }
 
         function closePathSelector() {
             document.getElementById('pathSelectorModal').classList.add('hidden');
+            isExcludeSelector = false;
         }
 
         async function browseSelectorPath(path) {
@@ -1230,13 +1261,45 @@
                 tbody.appendChild(tr);
             }
 
-            res.list.filter(item => item.IsDir).forEach(item => {
+            res.list.forEach(item => {
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-darkborder/30 transition cursor-pointer text-blue-200 border-b border-darkborder/50";
-                tr.onclick = () => browseSelectorPath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer border-b border-darkborder/50";
+                // Select mechanism
+                tr.onclick = () => {
+                     if (item.IsDir) {
+                         browseSelectorPath(fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name);
+                     } else {
+                         // If file, just select it
+                         document.getElementById('selectorPath').value = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+                     }
+                };
+                
+                // Add a specific select button/icon if in exclude mode? 
+                // Or just use the input field update.
+                // Update input field on hover or click (if file)?
+                // Let's update the input field on row click for visual feedback (handled above for file, dir enters)
+                
+                // Special handling for Exclude selector: we might want to select a DIRECTORY without entering it.
+                // We add a specific 'Select' button for directories in Exclude mode.
+                
+                let selectBtn = '';
+                if (isExcludeSelector && item.IsDir) {
+                     const fullItemPath = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+                     selectBtn = `<button onclick="event.stopPropagation(); document.getElementById('selectorPath').value='${fullItemPath}'; confirmPathSelection();" class="ml-2 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">Kies</button>`;
+                } else if (isExcludeSelector && !item.IsDir) {
+                     const fullItemPath = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+                     selectBtn = `<button onclick="event.stopPropagation(); document.getElementById('selectorPath').value='${fullItemPath}'; confirmPathSelection();" class="ml-2 text-[10px] bg-blue-900 text-blue-200 px-2 py-1 rounded hover:bg-blue-800">Kies</button>`;
+                }
+
+                const iconColor = item.IsDir ? 'text-yellow-500' : 'text-blue-400';
+                const iconClass = item.IsDir ? 'fa-folder' : 'fa-file-lines';
+
                 tr.innerHTML = `
-                    <td class="p-3 text-center text-yellow-500"><i class="fa-solid fa-folder"></i></td>
-                    <td class="p-3 font-medium">${item.Name}</td>
+                    <td class="p-3 text-center ${iconColor}"><i class="fa-solid ${iconClass}"></i></td>
+                    <td class="p-3 font-medium flex items-center justify-between">
+                        <span>${item.Name}</span>
+                        ${selectBtn}
+                    </td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -1244,8 +1307,37 @@
 
         function confirmPathSelection() {
             const selectedPath = document.getElementById('selectorPath').value;
+            
             if (targetInputId) {
-                document.getElementById(targetInputId).value = selectedPath;
+                if (isExcludeSelector) {
+                    // Extract just the name or relative path for exclude
+                    // But usually user wants to exclude a folder name or file pattern found in browser.
+                    // The browser returns full path (remote:path/to/folder).
+                    // We need to be careful. Rclone excludes are often relative to the root of the transfer.
+                    // Let's grab the last part of the path or let the user decide.
+                    // Simpler: Just append the full selected path, but stripping the remote part if possible?
+                    // Actually, Excludes are patterns. If I select "drive:backup/temp", I probably want to exclude "temp/**" or "/temp/**"
+                    
+                    // Let's strip the remote prefix if present to make it cleaner
+                    let excludePattern = selectedPath;
+                    const colonIdx = selectedPath.indexOf(':');
+                    if (colonIdx !== -1) {
+                         excludePattern = selectedPath.substring(colonIdx + 1);
+                    }
+                    
+                    // If it starts with slash, remove it for cleaner relative match, or keep?
+                    // Rclone filters are often relative to root of transfer.
+                    // Safe bet: just use path. User can edit.
+                    if (excludePattern.startsWith('/')) excludePattern = excludePattern.substring(1);
+                    
+                    const textArea = document.getElementById(targetInputId);
+                    const currentVal = textArea.value;
+                    const newVal = currentVal ? currentVal + '\n' + excludePattern : excludePattern;
+                    textArea.value = newVal;
+                    
+                } else {
+                    document.getElementById(targetInputId).value = selectedPath;
+                }
             }
             closePathSelector();
         }
