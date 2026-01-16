@@ -69,7 +69,13 @@
     <!-- Main Content -->
     <main class="flex-1 flex flex-col min-w-0 bg-darkbg">
         <header class="h-16 border-b border-darkborder bg-darkcard flex items-center justify-between px-8">
-            <h2 id="sectionTitle" class="text-lg font-semibold">Backups</h2>
+            <div class="flex items-center gap-6">
+                <h2 id="sectionTitle" class="text-lg font-semibold">Backups</h2>
+                <div id="systemStats" class="hidden flex gap-4 text-xs font-mono text-gray-500 border-l border-darkborder pl-4">
+                     <span title="Rclone Version"><i class="fa-solid fa-code-branch mr-1"></i> <span id="rcloneVersion">-</span></span>
+                     <span title="Heap Memory"><i class="fa-solid fa-memory mr-1"></i> <span id="rcloneHeap">-</span></span>
+                </div>
+            </div>
             <div class="flex items-center gap-4">
                 <div id="connectionStatus" class="flex items-center gap-2 text-sm text-red-400">
                     <span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken
@@ -104,6 +110,9 @@
                         <div class="flex gap-2">
                             <button id="btnRunNow" class="bg-green-600 hover:bg-green-500 text-white px-4 py-2 rounded flex items-center gap-2">
                                 <i class="fa-solid fa-play"></i> Start
+                            </button>
+                             <button id="btnStopJob" class="hidden bg-yellow-600 hover:bg-yellow-500 text-white px-4 py-2 rounded flex items-center gap-2">
+                                <i class="fa-solid fa-stop"></i> Stop
                             </button>
                             <button id="btnEditJob" class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded">
                                 <i class="fa-solid fa-edit"></i>
@@ -164,9 +173,14 @@
 
                     <!-- History -->
                     <div class="space-y-4">
-                        <h4 class="text-lg font-semibold flex items-center gap-2">
-                            <i class="fa-solid fa-history text-gray-500"></i> Geschiedenis
-                        </h4>
+                        <div class="flex justify-between items-center">
+                            <h4 class="text-lg font-semibold flex items-center gap-2">
+                                <i class="fa-solid fa-history text-gray-500"></i> Geschiedenis
+                            </h4>
+                            <button onclick="clearJobHistory()" class="text-xs text-red-400 hover:text-red-300 transition">
+                                <i class="fa-solid fa-trash-can mr-1"></i> Geschiedenis wissen
+                            </button>
+                        </div>
                         <div class="bg-darkcard rounded-xl border border-darkborder overflow-hidden">
                             <table class="w-full text-left text-sm">
                                 <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
@@ -372,14 +386,23 @@
         </div>
     </div>
 
+    <script src="mongo_manager.js"></script>
     <script>
+        // --- CONSTANTS ---
+        const APP_NAME = 'appnaam';
+        const CLIENT_ID = 'sandman';
+        const API_URL = 'http://10.10.2.20:5000';
+
+        const manager = new MongoManager(API_URL, CLIENT_ID, APP_NAME);
+
         // --- STATE ---
-        let jobs = JSON.parse(localStorage.getItem('rclone_jobs')) || [];
+        let jobs = []; // Loaded from Mongo
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
         let activeRcloneJobId = null; // Track if a job is currently running
         let activeSection = 'backups';
         let monitoringInterval = null;
+        let systemStatsInterval = null;
 
         // --- API CORE ---
         async function rcloneRequest(endpoint, body = {}) {
@@ -421,36 +444,117 @@
 
         async function syncWithServer() {
             try {
-                const res = await fetch('/api/get_jobs');
-                if (res.ok) {
-                    jobs = await res.json();
+                // Fetch jobs from MongoDB
+                const remoteJobs = await manager.getSmartCollection('jobs');
+                if (Array.isArray(remoteJobs)) {
+                    jobs = remoteJobs.map(j => ({
+                        ...j,
+                        id: j.id || j._id // Ensure we have an id for internal use
+                    }));
                     renderSidebar();
                 }
             } catch (e) {
-                console.warn("Server sync failed, using local data.");
+                console.warn("Server sync failed:", e);
+                // Optionally handle offline state here if needed
             }
         }
 
-        async function saveToServer() {
-            localStorage.setItem('rclone_jobs', JSON.stringify(jobs));
+        async function saveJobToMongo(job) {
             try {
-                await fetch('/api/jobs', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(jobs)
-                });
-            } catch (e) {}
-            renderSidebar();
+                // Ensure the job has an _id if it already exists remotely (mapped from internal job)
+                // If internal id matches a remote _id, we should use it.
+                // Currently internal 'id' is used.
+                // We send the whole job object. MongoManager handles _id check.
+                // If job has _id, it updates. If not, it creates.
+                
+                const savedJob = await manager.saveSmartDocument('jobs', job);
+                
+                // Update internal state with saved version (to get _id if new)
+                const index = jobs.findIndex(j => j.id === job.id);
+                if (index !== -1) {
+                    jobs[index] = { ...savedJob, id: savedJob.id || savedJob._id };
+                } else {
+                    // Should be already added by form, but if not:
+                    jobs.push({ ...savedJob, id: savedJob.id || savedJob._id });
+                }
+                renderSidebar();
+                return savedJob;
+            } catch (e) {
+                console.error("Failed to save job:", e);
+                alert("Kon taak niet opslaan op de server.");
+            }
+        }
+
+        async function deleteJobFromMongo(jobId) {
+             const job = jobs.find(j => j.id === jobId);
+             if (!job) return;
+             
+             try {
+                 // Use _id if available (from Mongo), otherwise we can't delete from Mongo easily 
+                 // unless we stored _id in the job object.
+                 // In syncWithServer we mapped id: j.id || j._id.
+                 // We need the actual _id for the API call if it differs from id.
+                 // The MongoManager uses data._id for save, but delete takes an id.
+                 
+                 const mongoId = job._id || job.id; 
+                 await manager.deleteSmartDocument('jobs', mongoId);
+             } catch(e) {
+                 console.error("Failed to delete job:", e);
+                 alert("Kon taak niet verwijderen van de server.");
+             }
+        }
+
+        /* 
+           Deprecating old saveToServer in favor of direct manager calls.
+           Keeping empty function if referenced elsewhere, but logic moved.
+        */
+        async function saveToServer() {
+           // No-op for bulk save. We save individually now.
         }
 
         function updateStatus(connected) {
             const el = document.getElementById('connectionStatus');
+            const statsEl = document.getElementById('systemStats');
+            
             if (connected) {
                 el.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-400"></span> Verbonden';
                 el.className = 'flex items-center gap-2 text-sm text-green-400';
+                statsEl.classList.remove('hidden');
+                startSystemStats();
             } else {
                 el.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-400"></span> Verbinding Verbroken';
                 el.className = 'flex items-center gap-2 text-sm text-red-400';
+                statsEl.classList.add('hidden');
+                stopSystemStats();
+            }
+        }
+
+        function startSystemStats() {
+            if (systemStatsInterval) return;
+            
+            const update = async () => {
+                // Version
+                if (document.getElementById('rcloneVersion').innerText === '-') {
+                    const v = await rcloneRequest('core/version');
+                    if (v) document.getElementById('rcloneVersion').innerText = `v${v.version}`;
+                }
+                
+                // MemStats
+                const m = await rcloneRequest('core/memstats');
+                if (m && m.HeapAlloc) {
+                    const mb = (m.HeapAlloc / 1024 / 1024).toFixed(1);
+                    document.getElementById('rcloneHeap').innerText = `${mb} MB`;
+                }
+            };
+
+            update();
+            systemStatsInterval = setInterval(update, 5000); // Update every 5s
+        }
+
+        function stopSystemStats() {
+            if (systemStatsInterval) {
+                clearInterval(systemStatsInterval);
+                systemStatsInterval = null;
             }
         }
 
@@ -674,8 +778,12 @@
                 'mt-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-800 text-gray-400';
 
             document.getElementById('btnRunNow').onclick = () => startJob(id);
+            document.getElementById('btnStopJob').onclick = () => stopJob(id);
             document.getElementById('btnEditJob').onclick = () => editJob(id);
             document.getElementById('btnDeleteJob').onclick = () => deleteJob(id);
+
+            // Reset UI for run/stop
+            updateRunState(activeRcloneJobId && activeJobId === id);
 
             // Reset stats
             document.getElementById('statStatus').innerText = "Gereed";
@@ -695,52 +803,169 @@
 
         function renderHistory(job) {
             const tbody = document.getElementById('historyTableBody');
+            const thead = document.querySelector('#historyTableBody').previousElementSibling;
+            
+            // Update Headers
+            thead.innerHTML = `
+                <tr>
+                    <th class="p-4">Datum</th>
+                    <th class="p-4">Duur</th>
+                    <th class="p-4">Status</th>
+                    <th class="p-4 text-right">Gem. Snelheid</th>
+                    <th class="p-4 text-right">Grootte</th>
+                    <th class="p-4 text-right">Bestanden</th>
+                    <th class="p-4 text-right">Skipped</th>
+                    <th class="p-4 text-right">Errors</th>
+                    <th class="p-4 w-8"></th>
+                </tr>
+            `;
+
             tbody.innerHTML = '';
             if (!job.history || job.history.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="9" class="p-8 text-center text-gray-600 italic">Nog geen geschiedenis beschikbaar</td></tr>';
                 return;
             }
 
-            job.history.forEach(log => {
+            job.history.forEach((log, index) => {
+                // Main Row
                 const tr = document.createElement('tr');
-                tr.className = "hover:bg-darkborder/30 transition cursor-pointer";
-                tr.onclick = () => showHistoryDetails(log);
+                tr.className = "hover:bg-darkborder/30 transition cursor-pointer border-b border-darkborder/50";
+                tr.onclick = () => toggleHistoryDetails(index, log);
                 tr.innerHTML = `
-                    <td class="p-4 text-gray-300">${log.date}</td>
+                    <td class="p-4 text-gray-300 whitespace-nowrap">${log.date}</td>
                     <td class="p-4 text-gray-400">${log.duration || '-'}</td>
                     <td class="p-4"><span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase ${log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200'}">${log.status}</span></td>
                     <td class="p-4 text-right text-gray-400 font-mono">${log.speed || '-'}</td>
                     <td class="p-4 text-right text-gray-300 font-mono">${log.size || '-'}</td>
+                    <td class="p-4 text-right text-gray-400 font-mono">${log.files || '-'}</td>
+                    <td class="p-4 text-right text-gray-400 font-mono">${log.skipped || '0'}</td>
+                    <td class="p-4 text-right ${log.errors > 0 ? 'text-red-400 font-bold' : 'text-gray-400'} font-mono">${log.errors || '0'}</td>
+                    <td class="p-4 text-center text-gray-500"><i class="fa-solid fa-chevron-down transition-transform" id="icon-${index}"></i></td>
                 `;
                 tbody.appendChild(tr);
+
+                // Details Row
+                const trDetail = document.createElement('tr');
+                trDetail.id = `detail-${index}`;
+                trDetail.className = "hidden bg-darkbg/50";
+                trDetail.innerHTML = `
+                    <td colspan="9" class="p-4">
+                        <div class="h-48 w-full bg-darkcard rounded-lg border border-darkborder p-4 relative" id="chart-${index}">
+                            <!-- Chart rendered here -->
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(trDetail);
             });
         }
 
-        function showHistoryDetails(log) {
-            // Als er een actieve job loopt (monitoringInterval is set), dan negeren we de klik om verwarring te voorkomen
-            if (monitoringInterval) return;
+        function toggleHistoryDetails(index, log) {
+            const detailRow = document.getElementById(`detail-${index}`);
+            const icon = document.getElementById(`icon-${index}`);
+            const isHidden = detailRow.classList.contains('hidden');
 
-            const uiStatus = document.getElementById('statStatus');
-            const uiBytes = document.getElementById('statBytes');
-            const uiFiles = document.getElementById('statFiles');
-            const uiSkipped = document.getElementById('statSkipped');
-            const uiSpeed = document.getElementById('statSpeed');
-            const uiTime = document.getElementById('statTime');
-            const uiErrors = document.getElementById('statErrors');
-            const uiTotalBytes = document.getElementById('statTotalBytes');
-            const uiEta = document.getElementById('statEta');
-
-            if (uiStatus) {
-                uiStatus.innerText = log.status;
-                uiStatus.className = log.status === 'Succes' ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+            // Close others? Optional. Let's keep it simple and allow multiple open.
+            
+            if (isHidden) {
+                detailRow.classList.remove('hidden');
+                icon.style.transform = "rotate(180deg)";
+                renderSpeedChart(index, log.speedSamples);
+            } else {
+                detailRow.classList.add('hidden');
+                icon.style.transform = "rotate(0deg)";
             }
-            if (uiBytes) uiBytes.innerText = log.size;
-            if (uiFiles) uiFiles.innerText = log.files || '-';
-            if (uiSkipped) uiSkipped.innerText = log.skipped ? `${log.skipped} overgeslagen` : '-';
-            if (uiSpeed) uiSpeed.innerText = log.speed || '-';
-            if (uiTime) uiTime.innerText = log.duration || '-';
-            if (uiErrors) uiErrors.innerText = log.errors ? `${log.errors} errors` : '0 errors';
-            if (uiEta) uiEta.innerText = "ETA: -";
+        }
+
+        function renderSpeedChart(index, samples) {
+            const container = document.getElementById(`chart-${index}`);
+            if (!samples || samples.length === 0) {
+                container.innerHTML = '<div class="flex items-center justify-center h-full text-gray-500">Geen snelheidsdata beschikbaar</div>';
+                return;
+            }
+
+            // Find max speed for scaling
+            const maxSpeed = Math.max(...samples.map(s => s.s));
+            const displayMax = maxSpeed > 0 ? maxSpeed : 1; 
+
+            container.innerHTML = '';
+            
+            // Helper to format bytes
+            const fmtSpeed = (bytes) => (bytes / 1024 / 1024).toFixed(1) + ' MB/s';
+            const fmtTime = (ts) => new Date(ts).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+
+            // Wrapper
+            const wrapper = document.createElement('div');
+            wrapper.className = "flex h-full w-full text-[10px] text-gray-500";
+
+            // --- Y-Axis ---
+            const yAxis = document.createElement('div');
+            yAxis.className = "flex flex-col justify-between items-end pr-2 pb-6 w-24 shrink-0 font-mono";
+            yAxis.innerHTML = `
+                <div class="relative -top-2">${fmtSpeed(displayMax)}</div>
+                <div class="relative">${fmtSpeed(displayMax / 2)}</div>
+                <div class="relative -bottom-1">0.0 MB/s</div>
+            `;
+            wrapper.appendChild(yAxis);
+
+            // --- Chart Content ---
+            const content = document.createElement('div');
+            content.className = "flex-1 flex flex-col min-w-0";
+
+            // Bars Area
+            const barsArea = document.createElement('div');
+            barsArea.className = "flex-1 flex items-end gap-[1px] border-l border-b border-darkborder relative";
+            
+            // Grid lines
+            const gridLineTop = document.createElement('div');
+            gridLineTop.className = "absolute top-0 w-full border-t border-darkborder/30 border-dashed pointer-events-none"; 
+            barsArea.appendChild(gridLineTop);
+            
+            const gridLineMid = document.createElement('div');
+            gridLineMid.className = "absolute top-1/2 w-full border-t border-darkborder/30 border-dashed pointer-events-none"; 
+            barsArea.appendChild(gridLineMid);
+
+            samples.forEach((sample) => {
+                const heightPerc = (sample.s / displayMax) * 100;
+                const bar = document.createElement('div');
+                bar.className = "flex-1 bg-blue-500/50 hover:bg-blue-400 transition-all rounded-t relative group min-w-[2px]";
+                bar.style.height = `${Math.max(heightPerc, 1)}%`;
+                
+                // Tooltip
+                const humanSpeed = fmtSpeed(sample.s);
+                const timeStr = new Date(sample.t).toLocaleTimeString();
+                
+                bar.innerHTML = `
+                    <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block z-20 whitespace-nowrap bg-gray-900 text-white text-[10px] py-1 px-2 rounded border border-gray-700 shadow-xl">
+                        ${timeStr} - ${humanSpeed}
+                    </div>
+                `;
+                barsArea.appendChild(bar);
+            });
+            content.appendChild(barsArea);
+
+            // --- X-Axis ---
+            const xAxis = document.createElement('div');
+            xAxis.className = "flex justify-between pt-1 font-mono h-5 mt-1";
+            
+            const startTime = samples.length > 0 ? fmtTime(samples[0].t) : '';
+            const midTime = samples.length > 1 ? fmtTime(samples[Math.floor(samples.length / 2)].t) : '';
+            const endTime = samples.length > 0 ? fmtTime(samples[samples.length - 1].t) : '';
+
+            xAxis.innerHTML = `
+                <span>${startTime}</span>
+                <span class="hidden sm:inline text-center">${midTime}</span>
+                <span>${endTime}</span>
+            `;
+            content.appendChild(xAxis);
+
+            wrapper.appendChild(content);
+            container.appendChild(wrapper);
+        }
+
+        // Deprecated/Removed functionality (showHistoryDetails was removing the stats isolation)
+        // Kept empty or removed to satisfy query.
+        function showHistoryDetails(log) {
+            // Functionality moved to inline expansion.
         }
 
         let targetInputId = null;
@@ -830,6 +1055,20 @@
         }
 
         // --- ACTIONS ---
+        // --- ACTIONS ---
+        function updateRunState(isRunning) {
+             const btnRun = document.getElementById('btnRunNow');
+             const btnStop = document.getElementById('btnStopJob');
+             
+             if (isRunning) {
+                 btnRun.classList.add('hidden');
+                 btnStop.classList.remove('hidden');
+             } else {
+                 btnRun.classList.remove('hidden');
+                 btnStop.classList.add('hidden');
+             }
+        }
+
         async function startJob(jobId) {
             const job = jobs.find(j => j.id === jobId);
             if (!job) return;
@@ -869,6 +1108,8 @@
             });
             
             if (res && res.jobid) {
+                activeRcloneJobId = res.jobid; // Set global active ID
+                updateRunState(true);
                 monitorJob(jobId, res.jobid);
             } else {
                 alert("Kon job niet starten. Controleer rclone verbinding.");
@@ -879,13 +1120,30 @@
             }
         }
 
+        async function stopJob(jobId) {
+            if (!activeRcloneJobId) return;
+            
+            if(confirm("Weet je zeker dat je de taak wilt stoppen?")) {
+                 await rcloneRequest('job/stop', { jobid: activeRcloneJobId });
+                 // Monitoring loop will detect finish/error shortly
+            }
+        }
+
         function monitorJob(internalJobId, rcloneJobId) {
             clearInterval(monitoringInterval);
+            let speedSamples = []; // Store speed samples for the chart
+
             monitoringInterval = setInterval(async () => {
                 const statusRes = await rcloneRequest('job/status', { jobid: rcloneJobId });
                 const statsRes = await rcloneRequest('core/stats'); 
                 
                 if (activeJobId === internalJobId && statsRes) {
+                    // Collect sample
+                    speedSamples.push({
+                        t: Date.now(),
+                        s: statsRes.speed // bytes per second
+                    });
+
                     const uiBytes = document.getElementById('statBytes');
                     const uiSpeed = document.getElementById('statSpeed');
                     const uiFiles = document.getElementById('statFiles');
@@ -946,6 +1204,9 @@
 
                 if (statusRes && statusRes.finished) {
                     clearInterval(monitoringInterval);
+                    activeRcloneJobId = null;
+                    updateRunState(false);
+                    
                     const success = statusRes.success;
                     const log = {
                         date: new Date().toLocaleString(),
@@ -955,7 +1216,8 @@
                         speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
                         files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
                         skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0,
-                        errors: statsRes ? statsRes.errors : 0
+                        errors: statsRes ? statsRes.errors : 0,
+                        speedSamples: speedSamples // Save samples
                     };
                     addLog(internalJobId, log);
                     
@@ -965,8 +1227,16 @@
                         if (activeTransfersSection) activeTransfersSection.classList.add('hidden');
 
                         if (uiStatus) {
-                            uiStatus.innerText = success ? "Voltooid" : "Mislukt";
-                            uiStatus.className = success ? "text-xl font-bold mt-1 text-green-400" : "text-xl font-bold mt-1 text-red-400";
+                            // Reset status display instead of showing last result permanently in "Active" area
+                            // The user requested that the status remains empty if no job runs.
+                            // However, strictly speaking, we might want to show "Voltooid" briefly or just clear it.
+                            // User said: "blijft leeg als er geen job draait".
+                            uiStatus.innerText = "-";
+                            uiStatus.className = "text-xl font-bold mt-1";
+                            document.getElementById('statBytes').innerText = "0 MB";
+                            document.getElementById('statSpeed').innerText = "-";
+                            document.getElementById('statFiles').innerText = "0 / 0";
+                            document.getElementById('statTime').innerText = "0s";
                         }
                         renderHistory(jobs.find(j => j.id === internalJobId));
                     }
@@ -980,17 +1250,35 @@
                 if (!job.history) job.history = [];
                 job.history.unshift(log);
                 if (job.history.length > 50) job.history.pop();
-                saveToServer();
+                // Save specific job to Mongo
+                saveJobToMongo(job);
+            }
+        }
+
+        async function clearJobHistory() {
+            if (!activeJobId) return;
+            if (confirm('Weet je zeker dat je de volledige geschiedenis van deze taak wilt wissen?')) {
+                const job = jobs.find(j => j.id === activeJobId);
+                if (job) {
+                    job.history = [];
+                    await saveJobToMongo(job);
+                    renderHistory(job);
+                }
             }
         }
 
         function deleteJob(id) {
             if(confirm('Weet je zeker dat je deze taak wilt verwijderen?')) {
-                jobs = jobs.filter(j => j.id !== id);
-                saveToServer();
-                activeJobId = null;
-                document.getElementById('jobDetail').classList.add('hidden');
-                document.getElementById('emptyState').classList.remove('hidden');
+                // Remove from local first for UI responsiveness? Or wait?
+                // Better to fire and forget or wait.
+                // Let's call delete first.
+                deleteJobFromMongo(id).then(() => {
+                    jobs = jobs.filter(j => j.id !== id);
+                    activeJobId = null;
+                    document.getElementById('jobDetail').classList.add('hidden');
+                    document.getElementById('emptyState').classList.remove('hidden');
+                    renderSidebar();
+                });
             }
         }
 
@@ -1026,27 +1314,49 @@
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
 
-        document.getElementById('jobForm').onsubmit = (e) => {
+        document.getElementById('jobForm').onsubmit = async (e) => {
             e.preventDefault();
-            const id = document.getElementById('editJobId').value || Date.now().toString();
+            // If editing, use existing ID. If new, let Mongo generate _id, 
+            // but we need a temporary ID for the UI until it returns? 
+            // Or just wait for save.
+            
+            const existingId = document.getElementById('editJobId').value;
+            // If existingId is present, we are editing.
+            
             const name = document.getElementById('jobName').value;
             const type = document.getElementById('jobType').value;
             const schedule = document.getElementById('jobSchedule').value;
             const source = document.getElementById('jobSource').value;
             const dest = document.getElementById('jobDest').value;
 
-            const jobIndex = jobs.findIndex(j => j.id === id);
-            const jobData = {
-                id, name, type, schedule, source, dest,
-                history: jobIndex > -1 ? jobs[jobIndex].history : []
-            };
+            let jobToSave;
+            
+            if (existingId) {
+                const jobIndex = jobs.findIndex(j => j.id === existingId);
+                if (jobIndex > -1) {
+                    jobToSave = {
+                        ...jobs[jobIndex],
+                        name, type, schedule, source, dest
+                    };
+                }
+            }
+            
+            if (!jobToSave) {
+                 // New job
+                 jobToSave = {
+                    id: Date.now().toString(), // Temp ID, will be replaced/augmented by _id
+                    name, type, schedule, source, dest,
+                    history: []
+                 };
+            }
 
-            if (jobIndex > -1) jobs[jobIndex] = jobData;
-            else jobs.push(jobData);
-
-            saveToServer();
-            closeJobModal();
-            selectJob(id);
+            // Save to Mongo
+            const savedJob = await saveJobToMongo(jobToSave);
+            
+            if (savedJob) {
+                closeJobModal();
+                selectJob(savedJob.id || savedJob._id);
+            }
         };
 
         function openConfigModal() {
