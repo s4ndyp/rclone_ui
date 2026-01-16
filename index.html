@@ -441,6 +441,8 @@
         let configuredRemotes = {}; // Cache for remotes
         let remoteStats = {}; // Cache for latest remote stats { name: { size: bytes, count: total, date: 'YYYY-MM-DD' } }
         let remoteHistory = {}; // Cache for 90 days history { name: [ { date, size, count } ] }
+        let remoteStatsMapping = {}; // Mapping of remote name to MongoDB _id { name: mongoId }
+        let taskRemStatsMapping = {}; // Mapping of task stats key to MongoDB _id { statsId: mongoId }
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
         let activeRemoteName = null;
@@ -503,10 +505,16 @@
                 const allStats = await manager.getCollection('remstats');
                 if (Array.isArray(allStats)) {
                     remoteStats = {};
+                    remoteStatsMapping = {};
                     allStats.forEach(doc => {
                         // Support new structure (individual history per remote)
                         if (doc.history && Array.isArray(doc.history)) {
-                            remoteStats[doc.remote || doc._id] = doc;
+                            const remoteName = doc.remote || doc._id;
+                            remoteStats[remoteName] = doc;
+                            // Update mapping: remote name -> MongoDB _id
+                            if (doc._id && doc.remote) {
+                                remoteStatsMapping[doc.remote] = doc._id;
+                            }
                         }
                     });
                 }
@@ -569,17 +577,28 @@
                     free: about ? about.free : null
                 };
 
-                // Check if record exists
-                let existingRecord = await manager.getDocument('remstats', name);
-                let record = {
-                    _id: name,
-                    remote: name,
-                    history: []
-                };
+                // Check if we have a mapping for this remote
+                let mongoId = remoteStatsMapping[name];
+                let existingRecord = null;
+
+                if (mongoId) {
+                    // We know the MongoDB _id, get the record directly
+                    existingRecord = await manager.getDocument('remstats', mongoId);
+                } else {
+                    // No mapping yet, search for existing record by remote name
+                    const allStats = await manager.getCollection('remstats');
+                    if (Array.isArray(allStats)) {
+                        existingRecord = allStats.find(doc => doc.remote === name);
+                        if (existingRecord) {
+                            // Found existing record, update mapping
+                            remoteStatsMapping[name] = existingRecord._id;
+                        }
+                    }
+                }
 
                 if (existingRecord) {
                     // Update existing record
-                    record = existingRecord;
+                    const record = existingRecord;
                     if (!record.history) record.history = [];
 
                     // Remove today's entry if exists (overwrite)
@@ -587,15 +606,22 @@
                     record.history.push(newEntry);
                     record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-                    // Save to Mongo with PUT
-                    await manager.putDocument('remstats', name, record);
+                    // Save to Mongo with PUT using the MongoDB _id
+                    await manager.putDocument('remstats', record._id, record);
                 } else {
-                    // Create new record
-                    record.history.push(newEntry);
-                    record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+                    // Create new record without custom _id (let MongoDB generate it)
+                    const record = {
+                        remote: name,
+                        history: [newEntry]
+                    };
 
                     // Save to Mongo with POST
-                    await manager.postDocument('remstats', record);
+                    const savedRecord = await manager.postDocument('remstats', record);
+
+                    // Store the MongoDB _id in mapping for future use
+                    if (savedRecord && savedRecord._id) {
+                        remoteStatsMapping[name] = savedRecord._id;
+                    }
                 }
 
                 // Update local state
@@ -629,18 +655,28 @@
                     // Create unique ID for this task-path combination
                     const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
-                    // Check if record exists
-                    let existingRecord = await manager.getDocument('taskremstats', statsId);
-                    let record = {
-                        _id: statsId,
-                        jobId: jobId,
-                        path: path,
-                        history: []
-                    };
+                    // Check if we have a mapping for this task stats
+                    let mongoId = taskRemStatsMapping[statsId];
+                    let existingRecord = null;
+
+                    if (mongoId) {
+                        // We know the MongoDB _id, get the record directly
+                        existingRecord = await manager.getDocument('taskremstats', mongoId);
+                    } else {
+                        // No mapping yet, search for existing record by statsId
+                        const allTaskStats = await manager.getCollection('taskremstats');
+                        if (Array.isArray(allTaskStats)) {
+                            existingRecord = allTaskStats.find(doc => doc._id === statsId || doc.jobId === jobId && doc.path === path);
+                            if (existingRecord) {
+                                // Found existing record, update mapping
+                                taskRemStatsMapping[statsId] = existingRecord._id;
+                            }
+                        }
+                    }
 
                     if (existingRecord) {
                         // Update existing record
-                        record = existingRecord;
+                        const record = existingRecord;
                         if (!record.history) record.history = [];
 
                         // Remove today's entry if exists (overwrite)
@@ -648,15 +684,23 @@
                         record.history.push(newEntry);
                         record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
 
-                        // Save to Mongo with PUT
-                        await manager.putDocument('taskremstats', statsId, record);
+                        // Save to Mongo with PUT using the MongoDB _id
+                        await manager.putDocument('taskremstats', record._id, record);
                     } else {
-                        // Create new record
-                        record.history.push(newEntry);
-                        record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+                        // Create new record without custom _id (let MongoDB generate it)
+                        const record = {
+                            jobId: jobId,
+                            path: path,
+                            history: [newEntry]
+                        };
 
                         // Save to Mongo with POST
-                        await manager.postDocument('taskremstats', record);
+                        const savedRecord = await manager.postDocument('taskremstats', record);
+
+                        // Store the MongoDB _id in mapping for future use
+                        if (savedRecord && savedRecord._id) {
+                            taskRemStatsMapping[statsId] = savedRecord._id;
+                        }
                     }
 
                     return record;
@@ -669,6 +713,11 @@
 
         async function getTaskRemStats(jobId, path) {
             const statsId = `task_${jobId}_${path.replace(/[^a-zA-Z0-9]/g, '_')}`;
+            const mongoId = taskRemStatsMapping[statsId];
+            if (mongoId) {
+                return await manager.getDocument('taskremstats', mongoId);
+            }
+            // Fallback: try direct lookup (for backwards compatibility)
             return await manager.getDocument('taskremstats', statsId);
         }
 
