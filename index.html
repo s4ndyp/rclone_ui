@@ -75,6 +75,7 @@
                 <div id="systemStats" class="hidden flex gap-4 text-xs font-mono text-gray-500 border-l border-darkborder pl-4">
                      <span title="Rclone Version"><i class="fa-solid fa-code-branch mr-1"></i> <span id="rcloneVersion">-</span></span>
                      <span title="Heap Memory"><i class="fa-solid fa-memory mr-1"></i> <span id="rcloneHeap">-</span></span>
+                     <button onclick="checkSchedulerStatus()" class="bg-blue-600 hover:bg-blue-500 text-white px-2 py-1 rounded text-xs" title="Check Scheduler Status">🔍</button>
                 </div>
             </div>
             <div class="flex items-center gap-4">
@@ -2407,6 +2408,50 @@
             const timeElement = document.getElementById('currentTime');
             if (timeElement) {
                 timeElement.textContent = timeString;
+            }
+        }
+
+        async function checkSchedulerStatus() {
+            try {
+                console.log('Checking scheduler status...');
+
+                // First check if backend is running
+                const testResponse = await fetch('/api/get_jobs');
+                if (!testResponse.ok) {
+                    alert('Backend server is not running! Start python rclone_manager.py first.');
+                    return;
+                }
+
+                const response = await fetch('/api/scheduler_status');
+                const status = await response.json();
+
+                console.log('Scheduler Status:', status);
+
+                // Show current backend time vs frontend time
+                const frontendTime = new Date().toLocaleTimeString('nl-NL', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
+
+                const frontendDay = new Date().getDay() === 0 ? 7 : new Date().getDay();
+
+                alert(`Backend Server: RUNNING ✅
+
+Backend Time: ${status.current_time} (Day: ${status.current_day})
+Frontend Time: ${frontendTime} (Day: ${frontendDay})
+Timezone: ${status.timezone}
+
+Jobs Found: ${status.jobs_count}
+
+${status.jobs.map(j => `📋 ${j.name}
+   Type: ${j.type}
+   Schedule: ${JSON.stringify(j.schedule)}
+   Enabled: ${j.enabled}`).join('\n\n')}`);
+
+            } catch (error) {
+                console.error('Scheduler status check failed:', error);
+                alert('Scheduler status check failed: ' + error.message + '\n\nMake sure the Python backend server is running!');
             }
         }
 
