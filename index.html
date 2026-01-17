@@ -1616,7 +1616,10 @@
                     return null;
                 }
 
-                console.log(`🕐 NextRun calc for ${job.name}: time=${scheduleTime}, days=[${scheduleDays.join(',')}], normalized=[${normalizedScheduleDays.join(',')}], backendOffset=${backendTimezoneOffset}`);
+                // Normalize scheduleDays to 1-7 format (convert Sunday from 0 to 7)
+                const normalizedScheduleDays = scheduleDays.map(day => day === 0 ? 7 : day);
+
+                console.log(`🕐 NextRun calc for ${job.name}: time=${scheduleTime}, days=[${scheduleDays.join(',')}], backendOffset=${backendTimezoneOffset}`);
 
                 // Parse schedule time (this is backend time from database)
                 const [hours, minutes] = scheduleTime.split(':').map(Number);
@@ -1626,9 +1629,6 @@
                 const now = new Date();
                 const backendNow = new Date(now.getTime() + (backendTimezoneOffset * 60 * 60 * 1000));
                 const currentDay = backendNow.getDay() === 0 ? 7 : backendNow.getDay(); // Convert to 1-7 format (Monday = 1, Sunday = 7)
-
-                // Normalize scheduleDays to 1-7 format (convert Sunday from 0 to 7)
-                const normalizedScheduleDays = scheduleDays.map(day => day === 0 ? 7 : day);
 
                 // Find next scheduled day
                 let daysToAdd = 0;
@@ -1660,7 +1660,7 @@
                     const allDays = [1, 2, 3, 4, 5, 6, 7]; // Normalized to 1-7 format (Sunday = 7)
                     const isDaily = normalizedScheduleDays.length === 7 && allDays.every(day => normalizedScheduleDays.includes(day));
 
-                    console.log(`⏰ Time passed today (${scheduledDate.toISOString()}), isDaily=${isDaily}`);
+                    console.log(`⏰ Time passed today (${scheduledDate.toISOString()}), isDaily=${isDaily}, scheduleDays=[${scheduleDays.join(',')}], normalized=[${normalizedScheduleDays.join(',')}]`);
 
                     if (isDaily) {
                         // For daily schedules, go to tomorrow
