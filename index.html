@@ -317,11 +317,7 @@
 
                 <!-- Local Disk Fields -->
                 <div id="localFields" class="space-y-4 hidden">
-                    <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Lokale Pad</label>
-                        <input type="text" id="remotePath" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="C:\Users\ of /home/user/" required>
-                    </div>
-                    <p class="text-[10px] text-gray-500">Let op: Dit maakt een lokale remote aan die naar een pad op dit systeem verwijst.</p>
+                    <p class="text-[10px] text-gray-500">Let op: Dit maakt een lokale remote aan die naar een pad op dit systeem verwijst. Het pad geef je op bij gebruik (bijv. "remotenaam:/pad/hier").</p>
                 </div>
                 <div class="flex justify-end gap-3 pt-4">
                     <button type="button" onclick="closeRemoteModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
@@ -1270,9 +1266,7 @@
                 document.getElementById('remoteUser').value = config.parameters?.user || '';
                 document.getElementById('remotePass').value = config.parameters?.pass || '';
             } else if (remoteType === 'local') {
-                // For local remotes, try to get a hint from the job configs or leave empty
-                // Since we don't store the path in Rclone config, we'll leave it empty for editing
-                document.getElementById('remotePath').value = '';
+                // For local remotes, no path field to fill
             }
 
             document.getElementById('editRemoteName').value = name;
@@ -1294,14 +1288,12 @@
                 modalTitle.textContent = 'Nieuwe SMB/CIFS Remote';
                 // Enable required for SMB fields
                 remoteHost.required = true;
-                remotePath.required = false;
             } else if (remoteType === 'local') {
                 smbFields.classList.add('hidden');
                 localFields.classList.remove('hidden');
                 modalTitle.textContent = 'Nieuwe Lokale Remote';
-                // Enable required for local fields
+                // No required fields for local remotes
                 remoteHost.required = false;
-                remotePath.required = true;
             }
         }
 
@@ -1344,29 +1336,20 @@
                     }
                 };
             } else if (remoteType === 'local') {
-                const path = document.getElementById('remotePath').value;
-
-                // For local remotes, we can optionally set a root path
-                // But for now, we'll keep it simple and just validate the path
+                // For local remotes, no parameters needed - path is specified when using the remote
                 params = {
                     name: name,
                     type: "local",
                     parameters: {}
                 };
 
-                // Validate that a path is provided for user reference
-                if (!path.trim()) {
-                    alert('Geef een lokale pad op voor de remote.');
-                    return;
-                }
-
-                console.log(`Local remote "${name}" created. Access with: ${name}:${path}`);
+                console.log(`Local remote "${name}" created. Access with: ${name}:/path/to/folder`);
 
                 // Try a quick test to see if the remote works
                 try {
                     const testRes = await rcloneRequest('operations/list', { fs: name + ':', remote: '' });
                     if (!testRes) {
-                        console.warn(`Warning: Could not list root of local remote "${name}". This might be normal if the path doesn't exist yet.`);
+                        console.warn(`Warning: Could not list root of local remote "${name}". This might be normal.`);
                     } else {
                         console.log(`Local remote "${name}" is accessible`);
                     }
@@ -1437,13 +1420,14 @@
                     const config = configuredRemotes[name];
                     const host = config.host || (config.parameters && config.parameters.host) || '';
                     
+                    const isLocal = config.type === 'local';
                     const div = document.createElement('div');
                     div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-3 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
                     div.onclick = () => selectRemote(name);
                     div.innerHTML = `
                         <div class="flex items-center gap-3">
-                            <div class="bg-purple-900/30 p-2 rounded-lg text-purple-400">
-                                <i class="fa-solid fa-server"></i>
+                            <div class="bg-${isLocal ? 'yellow' : 'purple'}-900/30 p-2 rounded-lg text-${isLocal ? 'yellow' : 'purple'}-400">
+                                <i class="fa-solid fa-${isLocal ? 'folder' : 'server'}"></i>
                             </div>
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center justify-between">
