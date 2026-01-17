@@ -2454,11 +2454,16 @@
             return `${frontendHours}:${frontendMinutes}`;
         }
 
-        async function initializeTimezoneOffset() {
-            try {
-                const response = await fetch('/api/scheduler_status');
-                if (response.ok) {
-                    const status = await response.json();
+        function initializeTimezoneOffset() {
+            // Initialize timezone offset asynchronously
+            fetch('/api/scheduler_status')
+                .then(response => {
+                    if (response.ok) {
+                        return response.json();
+                    }
+                    throw new Error(`HTTP ${response.status}`);
+                })
+                .then(status => {
                     const now = new Date();
                     const backendTimeParts = status.current_time.split(':');
                     const backendDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(),
@@ -2469,12 +2474,12 @@
                     backendTimezoneOffset = Math.round(timeDiff);
 
                     console.log(`Timezone offset initialized: ${backendTimezoneOffset} hours (Backend: ${status.timezone})`);
-                }
-            } catch (error) {
-                console.warn('Could not initialize timezone offset:', error);
-                // Default to 0 offset if we can't determine it
-                backendTimezoneOffset = 0;
-            }
+                })
+                .catch(error => {
+                    console.warn('Could not initialize timezone offset:', error);
+                    // Default to 0 offset if we can't determine it
+                    backendTimezoneOffset = 0;
+                });
         }
 
         // Global variable to store timezone offset
@@ -2651,7 +2656,6 @@ Try restarting the Python server.`);
                 console.log('Saving job with schedule:', schedule);
             } else {
                 console.log('No schedule time set, schedule will be null');
-            }
             }
 
             let jobToSave;
