@@ -152,6 +152,14 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             jobs = json.loads(post_data)
+
+            # Debug: print received jobs
+            print(f"[{datetime.now()}] Received jobs via POST:")
+            for job in jobs:
+                job_name = job.get('name', 'unnamed')
+                job_schedule = job.get('schedule')
+                print(f"[{datetime.now()}] Job '{job_name}' - schedule: {job_schedule}")
+
             save_jobs(jobs)
             self.send_response(200)
             self.end_headers()
@@ -199,11 +207,19 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
         elif self.path == '/api/scheduler_status':
             # Debug endpoint to check scheduler status
             now = datetime.now()
+            jobs_data = load_jobs()
+
+            print(f"[{datetime.now()}] Scheduler status requested. Jobs in file: {len(jobs_data)}")
+            for job in jobs_data:
+                job_name = job.get('name', 'unnamed')
+                job_schedule = job.get('schedule')
+                print(f"[{datetime.now()}] File job '{job_name}' - schedule: {job_schedule}")
+
             status = {
                 'current_time': now.strftime("%H:%M:%S"),
                 'current_day': now.weekday() + 1,  # Monday = 1, Sunday = 7
                 'timezone': str(now.tzinfo) if now.tzinfo else 'UTC',
-                'jobs_count': len(load_jobs()),
+                'jobs_count': len(jobs_data),
                 'jobs': [
                     {
                         'name': job.get('name', 'unnamed'),
@@ -211,7 +227,7 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
                         'schedule': job.get('schedule'),
                         'enabled': job.get('enabled', True)
                     }
-                    for job in load_jobs()
+                    for job in jobs_data
                 ]
             }
             self.send_response(200)

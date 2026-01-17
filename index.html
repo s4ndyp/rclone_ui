@@ -2481,6 +2481,7 @@
         let backendTimezoneOffset = 0; // Hours difference between frontend and backend
 
         async function checkSchedulerStatus() {
+            console.log('Current backendTimezoneOffset:', backendTimezoneOffset);
             try {
                 console.log('Checking scheduler status...');
 
@@ -2628,6 +2629,13 @@ Try restarting the Python server.`);
             const dest = document.getElementById('jobDest').value;
             const excludes = document.getElementById('jobExcludes').value.split('\n').map(l => l.trim()).filter(l => l);
 
+            console.log('Form values:', {
+                scheduleTime,
+                scheduleDaysStr,
+                hasScheduleTime: !!scheduleTime,
+                hasScheduleDays: !!scheduleDaysStr
+            });
+
             // Build schedule object with timezone correction
             let schedule = null;
             if (scheduleTime) {
@@ -2639,7 +2647,11 @@ Try restarting the Python server.`);
                     days: days
                 };
                 console.log(`Schedule conversion: Frontend ${scheduleTime} → Backend ${backendTime} (offset: ${backendTimezoneOffset}h)`);
+                console.log('Backend timezone offset value:', backendTimezoneOffset);
                 console.log('Saving job with schedule:', schedule);
+            } else {
+                console.log('No schedule time set, schedule will be null');
+            }
             }
 
             let jobToSave;
@@ -2663,10 +2675,19 @@ Try restarting the Python server.`);
                  };
             }
 
+            // Debug: log what we're sending
+            console.log('About to save job:', jobToSave);
+            console.log('Job schedule:', jobToSave.schedule);
+
+            if (!jobToSave.schedule) {
+                alert('WAARSCHUWING: Deze taak heeft geen schedule ingesteld!\n\nControleer of je een tijd hebt ingevoerd en dagen hebt geselecteerd.');
+            }
+
             // Save to Mongo
             const savedJob = await saveJobToMongo(jobToSave);
-            
+
             if (savedJob) {
+                console.log('Job saved successfully:', savedJob);
                 closeJobModal();
                 selectJob(savedJob.id || savedJob._id);
             }
