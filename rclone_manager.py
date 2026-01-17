@@ -394,14 +394,15 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
                 job_schedule = job.get('schedule')
                 print(f"[{datetime.now()}] File job '{job_name}' - schedule: {job_schedule}", flush=True)
 
+            # Load schedules for status display
+            schedules_data = mongo_client.get_collection('job_schedules')
+            schedule_map = {s.get('jobId'): s for s in schedules_data if s.get('jobId')}
+
             status = {
                 'current_time': now.strftime("%H:%M:%S"),
                 'current_day': now.weekday() + 1,  # Monday = 1, Sunday = 7
                 'timezone': str(now.tzinfo) if now.tzinfo else 'UTC',
                 'jobs_count': len(jobs_data),
-                # Load schedules for status display
-                schedules_data = mongo_client.get_collection('job_schedules')
-                schedule_map = {s.get('jobId'): s for s in schedules_data}
 
                 'jobs': [
                     {
