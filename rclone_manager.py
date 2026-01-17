@@ -153,22 +153,43 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=UI_DIR, **kwargs)
 
     def do_POST(self):
-        if self.path == '/api/jobs':
-            content_length = int(self.headers['Content-Length'])
-            post_data = self.rfile.read(content_length)
-            jobs = json.loads(post_data)
+        if self.path == '/api/sync_jobs':
+            # Sync jobs from MongoDB to jobs.json
+            try:
+                # This endpoint expects jobs data in the request body
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                mongo_jobs = json.loads(post_data)
 
-            # Debug: print received jobs
-            print(f"[{datetime.now()}] Received jobs via POST:", flush=True)
-            for job in jobs:
-                job_name = job.get('name', 'unnamed')
-                job_schedule = job.get('schedule')
-                print(f"[{datetime.now()}] Job '{job_name}' - schedule: {job_schedule}", flush=True)
+                # Convert MongoDB jobs to scheduler format
+                scheduler_jobs = []
+                for job in mongo_jobs:
+                    scheduler_job = {
+                        'id': job.get('id') or job.get('_id'),
+                        'name': job.get('name'),
+                        'type': job.get('type'),
+                        'source': job.get('source'),
+                        'dest': job.get('dest'),
+                        'schedule': job.get('schedule'),
+                        'enabled': job.get('enabled', True),
+                        'excludes': job.get('excludes', [])
+                    }
+                    scheduler_jobs.append(scheduler_job)
 
-            save_jobs(jobs)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"status": "ok"}')
+                save_jobs(scheduler_jobs)
+                print(f"[{datetime.now()}] Synced {len(scheduler_jobs)} jobs from MongoDB to jobs.json", flush=True)
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'synced', 'count': len(scheduler_jobs)}).encode())
+
+            except Exception as e:
+                print(f"[{datetime.now()}] Error syncing jobs: {e}", flush=True)
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode())
         elif self.path == '/api/get_jobs':
             jobs = load_jobs()
             self.send_response(200)
@@ -209,6 +230,44 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(jobs).encode())
+        elif self.path == '/api/sync_jobs':
+            # Sync jobs from MongoDB to jobs.json
+            try:
+                # This endpoint expects jobs data in the request body
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                mongo_jobs = json.loads(post_data)
+
+                # Convert MongoDB jobs to scheduler format
+                scheduler_jobs = []
+                for job in mongo_jobs:
+                    scheduler_job = {
+                        'id': job.get('id') or job.get('_id'),
+                        'name': job.get('name'),
+                        'type': job.get('type'),
+                        'source': job.get('source'),
+                        'dest': job.get('dest'),
+                        'schedule': job.get('schedule'),
+                        'enabled': job.get('enabled', True),
+                        'excludes': job.get('excludes', [])
+                    }
+                    scheduler_jobs.append(scheduler_job)
+
+                save_jobs(scheduler_jobs)
+                print(f"[{datetime.now()}] Synced {len(scheduler_jobs)} jobs from MongoDB to jobs.json", flush=True)
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'status': 'synced', 'count': len(scheduler_jobs)}).encode())
+
+            except Exception as e:
+                print(f"[{datetime.now()}] Error syncing jobs: {e}", flush=True)
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({'error': str(e)}).encode())
+
         elif self.path == '/api/scheduler_status':
             # Debug endpoint to check scheduler status
             now = datetime.now()

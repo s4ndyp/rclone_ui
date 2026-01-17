@@ -525,6 +525,22 @@
                         id: j.id || j._id, // Ensure we have an id for internal use
                         _id: j._id // Keep MongoDB _id for updates
                     }));
+
+                    // Sync jobs to jobs.json for scheduler
+                    try {
+                        const jobsResponse = await fetch('/api/sync_jobs', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(jobs)
+                        });
+                        if (jobsResponse.ok) {
+                            console.log('Jobs synced to jobs.json for scheduler');
+                        } else {
+                            console.warn('Failed to sync jobs to jobs.json');
+                        }
+                    } catch (error) {
+                        console.warn('Error syncing jobs to jobs.json:', error);
+                    }
                 }
 
                 
@@ -692,8 +708,23 @@
                  // We need the actual _id for the API call if it differs from id.
                  // The MongoManager uses data._id for save, but delete takes an id.
                  
-                 const mongoId = job._id || job.id; 
-                 await manager.deleteDocument('jobs', mongoId);
+                const mongoId = job._id || job.id;
+                await manager.deleteDocument('jobs', mongoId);
+
+                // Sync remaining jobs to jobs.json for scheduler
+                try {
+                    const remainingJobs = jobs.filter(j => j.id !== jobId);
+                    const jobsResponse = await fetch('/api/sync_jobs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(remainingJobs)
+                    });
+                    if (jobsResponse.ok) {
+                        console.log('Jobs synced to jobs.json after deletion');
+                    }
+                } catch (error) {
+                    console.warn('Error syncing jobs after deletion:', error);
+                }
              } catch(e) {
                  console.error("Failed to delete job:", e);
                  alert("Kon taak niet verwijderen van de server.");
@@ -2692,6 +2723,25 @@ Try restarting the Python server.`);
 
             if (savedJob) {
                 console.log('Job saved successfully:', savedJob);
+
+                // Also save to jobs.json for scheduler
+                try {
+                    // Get current jobs and add/update the saved job
+                    const currentJobs = await manager.getCollection('jobs');
+                    const jobsResponse = await fetch('/api/sync_jobs', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(currentJobs || [])
+                    });
+                    if (jobsResponse.ok) {
+                        console.log('Jobs synced to jobs.json for scheduler');
+                    } else {
+                        console.warn('Failed to sync jobs to jobs.json');
+                    }
+                } catch (error) {
+                    console.warn('Error syncing jobs to jobs.json:', error);
+                }
+
                 closeJobModal();
                 selectJob(savedJob.id || savedJob._id);
             }
