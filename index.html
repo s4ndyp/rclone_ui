@@ -1275,7 +1275,7 @@
             }
 
             document.getElementById('editRemoteName').value = name;
-            updateRemoteForm(); // Update form fields based on type
+            updateRemoteForm(); // Update form fields and required attributes based on type
             document.getElementById('remoteModal').classList.remove('hidden');
         }
 
@@ -1284,15 +1284,23 @@
             const smbFields = document.getElementById('smbFields');
             const localFields = document.getElementById('localFields');
             const modalTitle = document.getElementById('remoteModalTitle');
+            const remoteHost = document.getElementById('remoteHost');
+            const remotePath = document.getElementById('remotePath');
 
             if (remoteType === 'smb') {
                 smbFields.classList.remove('hidden');
                 localFields.classList.add('hidden');
                 modalTitle.textContent = 'Nieuwe SMB/CIFS Remote';
+                // Enable required for SMB fields
+                remoteHost.required = true;
+                remotePath.required = false;
             } else if (remoteType === 'local') {
                 smbFields.classList.add('hidden');
                 localFields.classList.remove('hidden');
                 modalTitle.textContent = 'Nieuwe Lokale Remote';
+                // Enable required for local fields
+                remoteHost.required = false;
+                remotePath.required = true;
             }
         }
 
@@ -1309,7 +1317,7 @@
             document.getElementById('remoteName').readOnly = false;
             document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
             document.getElementById('editRemoteName').value = '';
-            updateRemoteForm(); // Update form fields based on type
+            updateRemoteForm(); // Update form fields and required attributes based on type
             document.getElementById('remoteModal').classList.remove('hidden');
         }
 
