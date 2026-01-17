@@ -92,22 +92,53 @@ def mount_remotes():
 def scheduler():
     print(f"[{datetime.now()}] Scheduler started.")
     last_run = {} # Keep track of last run time per job to avoid double starts
-    
+
     while True:
         jobs = load_jobs()
         now = datetime.now()
         current_time = now.strftime("%H:%M")
-        
+        current_day = now.weekday() + 1  # Monday = 1, Sunday = 7 (to match our frontend)
+
+        # Only log every 5 minutes to reduce noise
+        should_log = now.minute % 5 == 0 and now.second < 30
+
+        if should_log:
+            print(f"[{datetime.now()}] Scheduler check - Time: {current_time}, Day: {current_day}, Jobs: {len(jobs)}, Timezone: {now.tzinfo}")
+
         for job in jobs:
+            job_name = job.get('name', job.get('id', 'unknown'))
+
             if job.get('type') == 'backup' and job.get('schedule') and job.get('enabled', True):
-                sched = job['schedule'] # Expected format "HH:MM"
-                
-                if sched == current_time:
+                schedule = job['schedule']
+
+                # Check if job should run at current time
+                should_run = False
+
+                if isinstance(schedule, str):
+                    # Old format: just time string (backwards compatibility)
+                    should_run = schedule == current_time
+                elif isinstance(schedule, dict) and 'time' in schedule:
+                    # New format: {time: "HH:MM", days: [1,2,3,4,5]}
+                    schedule_time = schedule['time']
+                    schedule_days = schedule.get('days', [1, 2, 3, 4, 5])  # Default Monday-Friday
+
+                    time_match = schedule_time == current_time
+                    day_match = current_day in schedule_days
+                    should_run = time_match and day_match
+
+                    if should_run:
+                        print(f"[{datetime.now()}] SCHEDULED RUN: Job '{job_name}' should run at {current_time} on day {current_day}")
+
+                if should_run:
                     job_id = job.get('id')
-                    if last_run.get(job_id) != current_time:
+                    run_key = f"{job_id}_{current_time}_{current_day}"
+                    if last_run.get(job_id) != run_key:
+                        print(f"[{datetime.now()}] EXECUTING scheduled run for job {job_name}")
                         run_backup(job)
-                        last_run[job_id] = current_time
-        
+                        last_run[job_id] = run_key
+                    else:
+                        print(f"[{datetime.now()}] Skipping duplicate run for job {job_name}")
+
         time.sleep(30)
 
 # --- API & SERVER ---
@@ -165,6 +196,28 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(jobs).encode())
+        elif self.path == '/api/scheduler_status':
+            # Debug endpoint to check scheduler status
+            now = datetime.now()
+            status = {
+                'current_time': now.strftime("%H:%M:%S"),
+                'current_day': now.weekday() + 1,  # Monday = 1, Sunday = 7
+                'timezone': str(now.tzinfo) if now.tzinfo else 'UTC',
+                'jobs_count': len(load_jobs()),
+                'jobs': [
+                    {
+                        'name': job.get('name', 'unnamed'),
+                        'type': job.get('type'),
+                        'schedule': job.get('schedule'),
+                        'enabled': job.get('enabled', True)
+                    }
+                    for job in load_jobs()
+                ]
+            }
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(status, indent=2).encode())
         else:
             return super().do_GET()
 
