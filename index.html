@@ -2211,40 +2211,19 @@
             }
         }
 
-        async function checkForActiveJobs() {
-            try {
-                // Get list of active rclone jobs
-                const jobList = await rcloneRequest('job/list');
-                if (!jobList || !jobList.jobids) return;
-
-                // If we don't have an active job, check for new ones
-                if (!activeRcloneJobId) {
-                    for (const rcloneJobId of jobList.jobids) {
-                        const status = await rcloneRequest('job/status', { jobid: rcloneJobId });
-                        if (status && status.Group === 'transfer' && !status.Finished) {
-                            // This is an active transfer job - likely scheduled
-                            // Find matching job by source path
-                            const job = jobs.find(j => j.source &&
-                                status.Started &&
-                                new Date() - new Date(status.Started * 1000) < 600000); // Within 10 minutes
-
-                        if (job) {
-                            console.log(`Detected active job: ${job.name} (rclone job ${rcloneJobId}) - starting UI monitoring`);
-                            // Start monitoring this job
-                            activeJobId = job.id;
-                            activeRcloneJobId = rcloneJobId;
-                            renderSidebar();
-                            selectJob(job.id);
-                            monitorJob(job.id, rcloneJobId, 'sync');
-                            break;
-                        }
-                        }
-                    }
-                }
-            } catch (error) {
-                // Ignore errors in active job detection
+        // Handle scheduled job triggers from backend
+        window.startScheduledJob = async function(jobId) {
+            console.log(`Starting scheduled job: ${jobId}`);
+            const job = jobs.find(j => j.id === jobId);
+            if (job) {
+                // Start the job as if user clicked the button
+                await startJob(jobId, false);
+                return { success: true, message: `Scheduled job ${job.name} started` };
+            } else {
+                console.error(`Scheduled job ${jobId} not found`);
+                return { success: false, message: `Job ${jobId} not found` };
             }
-        }
+        };
 
         function monitorJob(internalJobId, rcloneJobId, type = 'sync') {
             clearInterval(monitoringInterval);
@@ -2866,9 +2845,27 @@ Try restarting the Python server.`);
         initializeTimezoneOffset();
         // Initial connection check
         rcloneRequest('core/version').then(res => updateStatus(!!res));
-        // Start active jobs monitoring
-        checkForActiveJobs();
-        scheduledJobsMonitor = setInterval(checkForActiveJobs, 15000); // Check every 15 seconds
+        // Poll for scheduled job triggers from backend
+        async function checkScheduledTriggers() {
+            try {
+                const response = await fetch('/api/scheduled_triggers');
+                if (response.ok) {
+                    const triggers = await response.json();
+                    for (const trigger of triggers) {
+                        if (trigger.jobId) {
+                            console.log(`Processing scheduled trigger for job ${trigger.jobId}`);
+                            const result = await startScheduledJob(trigger.jobId);
+                            console.log(`Scheduled job result:`, result);
+                        }
+                    }
+                }
+            } catch (error) {
+                // Ignore polling errors silently
+            }
+        }
+
+        // Check for scheduled triggers every 10 seconds
+        setInterval(checkScheduledTriggers, 10000);
     </script>
 </body>
 </html>
