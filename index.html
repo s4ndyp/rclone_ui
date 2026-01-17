@@ -282,28 +282,43 @@
     <!-- Remote Modal -->
     <div id="remoteModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
         <div class="bg-darkcard p-8 rounded-2xl w-full max-w-lg border border-darkborder shadow-2xl">
-            <h3 id="remoteModalTitle" class="text-2xl font-bold mb-6">Nieuwe SMB/CIFS Remote</h3>
+            <h3 id="remoteModalTitle" class="text-2xl font-bold mb-6">Nieuwe Remote</h3>
             <form id="remoteForm" class="space-y-4">
                 <input type="hidden" id="editRemoteName" value="">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Type Remote</label>
+                    <select id="remoteType" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-purple-500 outline-none" onchange="updateRemoteForm()" required>
+                        <option value="smb">SMB/CIFS Network Share</option>
+                        <option value="local">Lokale Disk/Map</option>
+                    </select>
+                </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Naam (bijv. nas_source)</label>
                     <input type="text" id="remoteName" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-purple-500 outline-none" placeholder="nas_share" required>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Host (IP of Hostnaam)</label>
-                    <input type="text" id="remoteHost" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="192.168.1.100" required>
-                </div>
-                <div class="grid grid-cols-2 gap-4">
+                <!-- SMB/CIFS Fields -->
+                <div id="smbFields" class="space-y-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Gebruikersnaam</label>
-                        <input type="text" id="remoteUser" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="admin">
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Host (IP of Hostnaam)</label>
+                        <input type="text" id="remoteHost" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="192.168.1.100" required>
                     </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wachtwoord</label>
-                        <input type="password" id="remotePass" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="*****">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Gebruikersnaam</label>
+                            <input type="text" id="remoteUser" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="admin">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wachtwoord</label>
+                            <input type="password" id="remotePass" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="*****">
+                        </div>
                     </div>
+                    <p class="text-[10px] text-gray-500">Let op: Dit maakt een SMB/CIFS remote aan in de Rclone configuratie.</p>
                 </div>
-                <p class="text-[10px] text-gray-500 mt-2">Let op: Dit maakt een SMB remote aan in de Rclone configuratie.</p>
+
+                <!-- Local Disk Fields -->
+                <div id="localFields" class="space-y-4 hidden">
+                    <p class="text-[10px] text-gray-500">Let op: Dit maakt een lokale remote aan die naar een pad op dit systeem verwijst. Het pad geef je op bij gebruik (bijv. "remotenaam:/pad/hier").</p>
+                </div>
                 <div class="flex justify-end gap-3 pt-4">
                     <button type="button" onclick="closeRemoteModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
                     <button type="submit" class="bg-purple-600 hover:bg-purple-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg transition">Remote Opslaan</button>
@@ -399,8 +414,13 @@
     <!-- Config Modal -->
     <div id="configModal" class="fixed inset-0 bg-black/80 hidden flex items-center justify-center z-50 p-4">
         <div class="bg-darkcard p-8 rounded-2xl w-full max-w-md border border-darkborder shadow-2xl">
-            <h3 class="text-xl font-bold mb-6">Rclone API Verbinding</h3>
+            <h3 class="text-xl font-bold mb-6">Applicatie Configuratie</h3>
             <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Database Client ID</label>
+                    <input type="text" id="clientId" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="sandman">
+                    <p class="text-[10px] text-gray-500 mt-1">Unieke identifier voor deze client bij database connecties</p>
+                </div>
                 <div>
                     <label class="block text-xs font-bold text-gray-500 uppercase mb-2">API URL</label>
                     <input type="text" id="rcloneUrl" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="http://127.0.0.1:5572" value="http://127.0.0.1:5572">
@@ -415,7 +435,8 @@
                 </div>
                 <p class="text-[10px] text-gray-500">Tip: Start rclone met --rc-allow-origin "*" om CORS problemen te voorkomen als je dit bestand direct opent.</p>
             </div>
-            <div class="flex justify-end mt-8">
+            <div class="flex justify-end gap-3 mt-8">
+                <button type="button" onclick="closeConfigModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
                 <button onclick="saveConfig()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg">Verbinding Opslaan</button>
             </div>
         </div>
@@ -459,10 +480,14 @@
     <script>
         // --- CONSTANTS ---
         const APP_NAME = 'rclone';
-        const CLIENT_ID = 'sandman';
         const API_URL = 'http://10.10.2.20:5000';
 
-        const manager = new MongoManager(API_URL, CLIENT_ID, APP_NAME);
+        // Get client ID from localStorage or default to 'sandman'
+        function getClientId() {
+            return localStorage.getItem('rclone_client_id') || 'sandman';
+        }
+
+        let manager = new MongoManager(API_URL, getClientId(), APP_NAME);
 
         // --- STATE ---
         let jobs = []; // Loaded from Mongo
@@ -1226,16 +1251,51 @@
             const config = configuredRemotes[name];
             if (!config) return;
 
+            // Detect remote type and set form accordingly
+            let remoteType = 'smb'; // default
+            if (config.type === 'local') {
+                remoteType = 'local';
+            }
+
+            document.getElementById('remoteType').value = remoteType;
             document.getElementById('remoteName').value = name;
             document.getElementById('remoteName').readOnly = false;
             document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
-            document.getElementById('remoteHost').value = config.parameters?.host || '';
-            document.getElementById('remoteUser').value = config.parameters?.user || '';
-            document.getElementById('remotePass').value = config.parameters?.pass || '';
 
-            document.getElementById('remoteModalTitle').innerText = `Remote "${name}" Bewerken`;
+            if (remoteType === 'smb') {
+                document.getElementById('remoteHost').value = config.parameters?.host || '';
+                document.getElementById('remoteUser').value = config.parameters?.user || '';
+                document.getElementById('remotePass').value = config.parameters?.pass || '';
+            } else if (remoteType === 'local') {
+                // For local remotes, no path field to fill
+            }
+
             document.getElementById('editRemoteName').value = name;
+            updateRemoteForm(); // Update form fields and required attributes based on type
             document.getElementById('remoteModal').classList.remove('hidden');
+        }
+
+        function updateRemoteForm() {
+            const remoteType = document.getElementById('remoteType').value;
+            const smbFields = document.getElementById('smbFields');
+            const localFields = document.getElementById('localFields');
+            const modalTitle = document.getElementById('remoteModalTitle');
+            const remoteHost = document.getElementById('remoteHost');
+            const remotePath = document.getElementById('remotePath');
+
+            if (remoteType === 'smb') {
+                smbFields.classList.remove('hidden');
+                localFields.classList.add('hidden');
+                modalTitle.textContent = 'Nieuwe SMB/CIFS Remote';
+                // Enable required for SMB fields
+                remoteHost.required = true;
+            } else if (remoteType === 'local') {
+                smbFields.classList.add('hidden');
+                localFields.classList.remove('hidden');
+                modalTitle.textContent = 'Nieuwe Lokale Remote';
+                // No required fields for local remotes
+                remoteHost.required = false;
+            }
         }
 
         function closeRemoteModal() {
@@ -1247,31 +1307,57 @@
 
         function openAddRemoteModal() {
             document.getElementById('remoteForm').reset();
+            document.getElementById('remoteType').value = 'smb'; // Default to SMB
             document.getElementById('remoteName').readOnly = false;
             document.getElementById('remoteName').classList.remove('bg-gray-800', 'cursor-not-allowed');
-            document.getElementById('remoteModalTitle').innerText = 'Nieuwe SMB/CIFS Remote';
             document.getElementById('editRemoteName').value = '';
+            updateRemoteForm(); // Update form fields and required attributes based on type
             document.getElementById('remoteModal').classList.remove('hidden');
         }
 
         document.getElementById('remoteForm').onsubmit = async (e) => {
             e.preventDefault();
             const name = document.getElementById('remoteName').value;
-            const host = document.getElementById('remoteHost').value;
-            const user = document.getElementById('remoteUser').value;
-            const pass = document.getElementById('remotePass').value;
+            const remoteType = document.getElementById('remoteType').value;
             const editName = document.getElementById('editRemoteName').value;
 
-            // Rclone config/create expects 'parameters' for the specific type
-            const params = {
-                name: name,
-                type: "smb",
-                parameters: {
-                    host: host,
-                    user: user,
-                    pass: pass
+            let params;
+            if (remoteType === 'smb') {
+                const host = document.getElementById('remoteHost').value;
+                const user = document.getElementById('remoteUser').value;
+                const pass = document.getElementById('remotePass').value;
+
+                params = {
+                    name: name,
+                    type: "smb",
+                    parameters: {
+                        host: host,
+                        user: user,
+                        pass: pass
+                    }
+                };
+            } else if (remoteType === 'local') {
+                // For local remotes, no parameters needed - path is specified when using the remote
+                params = {
+                    name: name,
+                    type: "local",
+                    parameters: {}
+                };
+
+                console.log(`Local remote "${name}" created. Access with: ${name}:/path/to/folder`);
+
+                // Try a quick test to see if the remote works
+                try {
+                    const testRes = await rcloneRequest('operations/list', { fs: name + ':', remote: '' });
+                    if (!testRes) {
+                        console.warn(`Warning: Could not list root of local remote "${name}". This might be normal.`);
+                    } else {
+                        console.log(`Local remote "${name}" is accessible`);
+                    }
+                } catch (e) {
+                    console.warn(`Warning: Could not test local remote "${name}":`, e);
                 }
-            };
+            }
 
             try {
                 if (editName && editName !== name) {
@@ -1335,13 +1421,14 @@
                     const config = configuredRemotes[name];
                     const host = config.host || (config.parameters && config.parameters.host) || '';
                     
+                    const isLocal = config.type === 'local';
                     const div = document.createElement('div');
                     div.className = `p-4 rounded-xl cursor-pointer border transition flex flex-col gap-3 ${activeRemoteName === name ? 'bg-darkcard border-purple-500 shadow-lg shadow-purple-500/10' : 'bg-darkcard/40 border-darkborder hover:border-gray-600'}`;
                     div.onclick = () => selectRemote(name);
                     div.innerHTML = `
                         <div class="flex items-center gap-3">
-                            <div class="bg-purple-900/30 p-2 rounded-lg text-purple-400">
-                                <i class="fa-solid fa-server"></i>
+                            <div class="bg-${isLocal ? 'yellow' : 'purple'}-900/30 p-2 rounded-lg text-${isLocal ? 'yellow' : 'purple'}-400">
+                                <i class="fa-solid fa-${isLocal ? 'folder' : 'server'}"></i>
                             </div>
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center justify-between">
@@ -1996,10 +2083,14 @@
                 }
                 tbody.innerHTML = '';
                 Object.keys(res).forEach(name => {
+                    const config = res[name];
                     const tr = document.createElement('tr');
                     tr.className = "hover:bg-darkborder/30 cursor-pointer text-blue-200";
-                    tr.onclick = () => browseSelectorPath(name + ':');
-                    tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-database text-purple-400"></i></td><td class="p-3">${name}:</td>`;
+                    // For local remotes, start with the remote name only
+                    // For network remotes, start with remote name + colon
+                    const startPath = config.type === 'local' ? name : name + ':';
+                    tr.onclick = () => browseSelectorPath(startPath);
+                    tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-${config.type === 'local' ? 'folder' : 'database'} text-${config.type === 'local' ? 'yellow' : 'purple'}-400"></i></td><td class="p-3">${name}${config.type === 'local' ? '' : ':'}</td>`;
                     tbody.appendChild(tr);
                 });
                 return;
@@ -2012,6 +2103,10 @@
             if (colonIdx !== -1) {
                 fs = fullPath.substring(0, colonIdx + 1);
                 remotePath = fullPath.substring(colonIdx + 1);
+            } else {
+                // For local remotes without colon, add it
+                fs = fullPath + ':';
+                remotePath = "";
             }
 
             const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
@@ -2501,6 +2596,7 @@
         }
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
+        function closeConfigModal() { document.getElementById('configModal').classList.add('hidden'); }
 
         function updateCurrentTime() {
             const now = new Date();
@@ -2846,6 +2942,7 @@ Try restarting the Python server.`);
         };
 
         function openConfigModal() {
+            document.getElementById('clientId').value = getClientId();
             document.getElementById('rcloneUrl').value = config.url;
             document.getElementById('rcloneUser').value = config.user;
             document.getElementById('rclonePass').value = config.pass;
@@ -2853,13 +2950,21 @@ Try restarting the Python server.`);
         }
 
         function saveConfig() {
+            // Save client ID
+            const clientId = document.getElementById('clientId').value.trim();
+            if (clientId) {
+                localStorage.setItem('rclone_client_id', clientId);
+                // Reinitialize manager with new client ID
+                manager = new MongoManager(API_URL, clientId, APP_NAME);
+            }
+
             config.url = document.getElementById('rcloneUrl').value;
             config.user = document.getElementById('rcloneUser').value;
             config.pass = document.getElementById('rclonePass').value;
             localStorage.setItem('rclone_config', JSON.stringify(config));
             document.getElementById('configModal').classList.add('hidden');
             updateStatus(false); // Force check on next request
-            alert('Configuratie opgeslagen');
+            alert('Configuratie opgeslagen - Herlaad de pagina om wijzigingen volledig toe te passen');
         }
 
         // --- INIT ---
