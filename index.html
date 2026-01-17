@@ -435,7 +435,8 @@
                 </div>
                 <p class="text-[10px] text-gray-500">Tip: Start rclone met --rc-allow-origin "*" om CORS problemen te voorkomen als je dit bestand direct opent.</p>
             </div>
-            <div class="flex justify-end mt-8">
+            <div class="flex justify-end gap-3 mt-8">
+                <button type="button" onclick="closeConfigModal()" class="px-6 py-3 text-gray-400 hover:text-white transition">Annuleren</button>
                 <button onclick="saveConfig()" class="bg-green-600 hover:bg-green-500 text-white px-8 py-3 rounded-lg font-bold shadow-lg">Verbinding Opslaan</button>
             </div>
         </div>
@@ -2595,6 +2596,7 @@
         }
 
         function closeJobModal() { document.getElementById('jobModal').classList.add('hidden'); }
+        function closeConfigModal() { document.getElementById('configModal').classList.add('hidden'); }
 
         function updateCurrentTime() {
             const now = new Date();
