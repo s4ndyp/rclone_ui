@@ -104,29 +104,23 @@ class MongoClient:
 # Global MongoDB client
 mongo_client = MongoClient(MONGODB_URL, CLIENT_ID, APP_NAME)
 
+# Global list of pending scheduled job triggers
+pending_triggers = []
+
+def trigger_frontend_job(job_id):
+    """Add job trigger to pending list for frontend to pick up"""
+    trigger = {
+        'jobId': job_id,
+        'timestamp': datetime.now().isoformat(),
+        'processed': False
+    }
+    pending_triggers.append(trigger)
+    print(f"[{datetime.now()}] Added scheduled trigger for job {job_id} (total pending: {len(pending_triggers)})", flush=True)
+    return True
+
 # --- TASKS ---
 
-def run_backup(job):
-    print(f"[{datetime.now()}] Starting Backup: {job['name']}", flush=True)
-
-    # Reset stats so that core/stats only reflects the current backup
-    # This fulfills the requirement of "activating" stats only for the new start
-    print(f"[{datetime.now()}] Resetting rclone stats...", flush=True)
-    rclone_rc_call("core/stats-reset")
-
-    # Using sync/copy as it's safer than sync/sync for backups
-    params = {
-        "srcFs": job['source'],
-        "dstFs": job['dest'],
-        "_async": True
-    }
-    res = rclone_rc_call("sync/copy", params)
-    if res and 'jobid' in res:
-        print(f"[{datetime.now()}] Backup {job['name']} started. Job ID: {res['jobid']}", flush=True)
-        return res['jobid']
-    else:
-        print(f"[{datetime.now()}] Failed to start backup {job['name']}", flush=True)
-    return None
+# run_backup function removed - scheduler now triggers jobs through frontend
 
 def mount_remotes():
     jobs = load_jobs()
@@ -187,8 +181,8 @@ def scheduler():
         current_time = now.strftime("%H:%M")
         current_day = now.weekday() + 1  # Monday = 1, Sunday = 7 (to match our frontend)
 
-        # Log every minute for better monitoring
-        should_log = now.second < 30
+        # Log every 30 seconds to reduce spam but still monitor
+        should_log = now.second % 30 < 5
 
         if should_log:
             print(f"[{datetime.now()}] Scheduler check - Time: {current_time}, Day: {current_day}, Jobs: {len(jobs)} (from MongoDB)", flush=True)
@@ -223,11 +217,11 @@ def scheduler():
                     job_id = job.get('id')
                     run_key = f"{job_id}_{current_time}_{current_day}"
                     if last_run.get(job_id) != run_key:
-                        print(f"[{datetime.now()}] EXECUTING scheduled run for job {job_name}", flush=True)
-                        run_backup(job)
+                        print(f"[{datetime.now()}] 🎯 SCHEDULED RUN: Triggering job '{job_name}' (ID: {job_id}) via frontend", flush=True)
+                        trigger_frontend_job(job_id)
                         last_run[job_id] = run_key
                     else:
-                        print(f"[{datetime.now()}] Skipping duplicate run for job {job_name}", flush=True)
+                        print(f"[{datetime.now()}] ⏭️ Skipping duplicate run for job {job_name}", flush=True)
 
         time.sleep(60)  # Check every minute instead of 30 seconds
 
@@ -238,93 +232,34 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
         super().__init__(*args, directory=UI_DIR, **kwargs)
 
     def do_POST(self):
-        if self.path == '/api/sync_jobs':
-            # Sync jobs from MongoDB to jobs.json
-            try:
-                # This endpoint expects jobs data in the request body
-                content_length = int(self.headers['Content-Length'])
-                post_data = self.rfile.read(content_length)
-                mongo_jobs = json.loads(post_data)
-
-                # Convert MongoDB jobs to scheduler format
-                scheduler_jobs = []
-                for job in mongo_jobs:
-                    scheduler_job = {
-                        'id': job.get('id') or job.get('_id'),
-                        'name': job.get('name'),
-                        'type': job.get('type'),
-                        'source': job.get('source'),
-                        'dest': job.get('dest'),
-                        'schedule': job.get('schedule'),
-                        'enabled': job.get('enabled', True),
-                        'excludes': job.get('excludes', [])
-                    }
-                    scheduler_jobs.append(scheduler_job)
-
-                save_jobs(scheduler_jobs)
-                print(f"[{datetime.now()}] Synced {len(scheduler_jobs)} jobs from MongoDB to jobs.json", flush=True)
-
-                self.send_response(200)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'status': 'synced', 'count': len(scheduler_jobs)}).encode())
-
-            except Exception as e:
-                print(f"[{datetime.now()}] Error syncing jobs: {e}", flush=True)
-                self.send_response(500)
-                self.send_header('Content-type', 'application/json')
-                self.end_headers()
-                self.wfile.write(json.dumps({'error': str(e)}).encode())
-        elif self.path == '/api/get_jobs':
+        if self.path == '/api/get_jobs':
             jobs = load_jobs()
             self.send_response(200)
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(jobs).encode())
-        elif self.path == '/api/run_job':
+        elif self.path == '/api/start_scheduled_job':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data)
 
-            # Load job directly from MongoDB
-            job_doc = mongo_client.get_document('jobs', data['id'])
-            if job_doc:
-                job_id = job_doc.get('id') or job_doc.get('_id')
-                schedule_data = None
+            job_id = data.get('jobId')
+            if job_id:
+                print(f"[{datetime.now()}] Received scheduled job trigger for {job_id}", flush=True)
 
-                # Load schedule from separate collection if referenced
-                job_schedule = job_doc.get('schedule')
-                if job_schedule and isinstance(job_schedule, dict) and job_schedule.get('_id'):
-                    schedule_doc = mongo_client.get_document('job_schedules', job_schedule['_id'])
-                    if schedule_doc:
-                        schedule_data = {
-                            'time': schedule_doc.get('time'),
-                            'days': schedule_doc.get('days', [])
-                        }
-                elif job_schedule and isinstance(job_schedule, dict):
-                    # Legacy inline schedule
-                    schedule_data = job_schedule
+                # Instead of starting the job directly, we'll use a WebSocket-like approach
+                # For now, we'll store the trigger and let the frontend poll for it
+                # TODO: Implement WebSocket or Server-Sent Events for real-time triggers
 
-                job = {
-                    'id': job_id,
-                    'name': job_doc.get('name'),
-                    'type': job_doc.get('type'),
-                    'source': job_doc.get('source'),
-                    'dest': job_doc.get('dest'),
-                    'schedule': schedule_data,
-                    'enabled': job_doc.get('enabled', True),
-                    'excludes': job_doc.get('excludes', [])
-                }
-            else:
-                job = None
-            if job:
-                jobid = run_backup(job)
                 self.send_response(200)
+                self.send_header('Content-type', 'application/json')
                 self.end_headers()
-                self.wfile.write(json.dumps({"status": "started", "jobid": jobid}).encode())
+                self.wfile.write(json.dumps({"status": "triggered", "jobId": job_id}).encode())
             else:
-                self.send_response(404)
+                self.send_response(400)
+                self.send_header('Content-type', 'application/json')
                 self.end_headers()
+                self.wfile.write(json.dumps({"error": "Missing jobId"}).encode())
         else:
             # Proxy to rclone RC
             if self.path.startswith('/rc/'):
@@ -418,6 +353,26 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(status, indent=2).encode())
+        elif self.path == '/api/scheduled_triggers':
+            # Return pending triggers and clear them
+            global pending_triggers
+            triggers_to_send = [t for t in pending_triggers if not t['processed']]
+
+            print(f"[{datetime.now()}] Serving {len(triggers_to_send)} pending triggers", flush=True)
+
+            # Mark as processed
+            for trigger in triggers_to_send:
+                trigger['processed'] = True
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(triggers_to_send).encode())
+
+            # Clean up old processed triggers (keep last 100)
+            pending_triggers = [t for t in pending_triggers if t['processed']][-100:]
+
+            print(f"[{datetime.now()}] Triggers served, {len(pending_triggers)} remaining in queue", flush=True)
         else:
             return super().do_GET()
 

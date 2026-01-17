@@ -476,6 +476,7 @@
         let monitoringInterval = null;
         let activeJobProgress = { bytes: 0, totalBytes: 0, percentage: 0 }; // Track progress for active job
         let systemStatsInterval = null;
+        let scheduledJobsMonitor = null; // Monitor for scheduled jobs
 
         // --- API CORE ---
         async function rcloneRequest(endpoint, body = {}) {
@@ -550,21 +551,7 @@
                         };
                     });
 
-                    // Sync jobs to jobs.json for scheduler
-                    try {
-                        const jobsResponse = await fetch('/api/sync_jobs', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(jobs)
-                        });
-                        if (jobsResponse.ok) {
-                            console.log('Jobs synced to jobs.json for scheduler');
-                        } else {
-                            console.warn('Failed to sync jobs to jobs.json');
-                        }
-                    } catch (error) {
-                        console.warn('Error syncing jobs to jobs.json:', error);
-                    }
+                    // No sync needed - scheduler reads directly from MongoDB
                 }
 
                 
@@ -2224,6 +2211,20 @@
             }
         }
 
+        // Handle scheduled job triggers from backend
+        window.startScheduledJob = async function(jobId) {
+            console.log(`Starting scheduled job: ${jobId}`);
+            const job = jobs.find(j => j.id === jobId);
+            if (job) {
+                // Start the job as if user clicked the button
+                await startJob(jobId, false);
+                return { success: true, message: `Scheduled job ${job.name} started` };
+            } else {
+                console.error(`Scheduled job ${jobId} not found`);
+                return { success: false, message: `Job ${jobId} not found` };
+            }
+        };
+
         function monitorJob(internalJobId, rcloneJobId, type = 'sync') {
             clearInterval(monitoringInterval);
             let speedSamples = []; // Store speed samples for the chart
@@ -2370,8 +2371,11 @@
                 if (!job.history) job.history = [];
                 job.history.unshift(log);
                 if (job.history.length > 50) job.history.pop();
+                console.log(`Adding log to job ${job.name}:`, log);
                 // Save specific job to Mongo
                 saveJobToMongo(job);
+            } else {
+                console.warn(`Could not find job with id ${jobId} to add log:`, log);
             }
         }
 
@@ -2807,23 +2811,7 @@ Try restarting the Python server.`);
             if (savedJob) {
                 console.log('Job saved successfully:', savedJob);
 
-                // Also save to jobs.json for scheduler
-                try {
-                    // Get current jobs and add/update the saved job
-                    const currentJobs = await manager.getCollection('jobs');
-                    const jobsResponse = await fetch('/api/sync_jobs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(currentJobs || [])
-                    });
-                    if (jobsResponse.ok) {
-                        console.log('Jobs synced to jobs.json for scheduler');
-                    } else {
-                        console.warn('Failed to sync jobs to jobs.json');
-                    }
-                } catch (error) {
-                    console.warn('Error syncing jobs to jobs.json:', error);
-                }
+                // No need to sync - scheduler reads directly from MongoDB
 
                 closeJobModal();
                 selectJob(savedJob.id || savedJob._id);
@@ -2857,6 +2845,32 @@ Try restarting the Python server.`);
         initializeTimezoneOffset();
         // Initial connection check
         rcloneRequest('core/version').then(res => updateStatus(!!res));
+        // Poll for scheduled job triggers from backend
+        async function checkScheduledTriggers() {
+            try {
+                const response = await fetch('/api/scheduled_triggers');
+                if (response.ok) {
+                    const triggers = await response.json();
+                    if (triggers.length > 0) {
+                        console.log(`🔥 Received ${triggers.length} scheduled triggers:`, triggers);
+                        for (const trigger of triggers) {
+                            if (trigger.jobId) {
+                                console.log(`🚀 Processing scheduled trigger for job ${trigger.jobId}`);
+                                const result = await startScheduledJob(trigger.jobId);
+                                console.log(`✅ Scheduled job result:`, result);
+                            }
+                        }
+                    }
+                } else {
+                    console.warn(`⚠️ Scheduled triggers endpoint returned ${response.status}`);
+                }
+            } catch (error) {
+                console.warn(`❌ Error polling scheduled triggers:`, error);
+            }
+        }
+
+        // Check for scheduled triggers every 5 seconds (for debugging)
+        setInterval(checkScheduledTriggers, 5000);
     </script>
 </body>
 </html>
