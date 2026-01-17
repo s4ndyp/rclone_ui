@@ -55,11 +55,11 @@ def save_jobs(jobs):
 # --- TASKS ---
 
 def run_backup(job):
-    print(f"[{datetime.now()}] Starting Backup: {job['name']}")
+    print(f"[{datetime.now()}] Starting Backup: {job['name']}", flush=True)
 
     # Reset stats so that core/stats only reflects the current backup
     # This fulfills the requirement of "activating" stats only for the new start
-    print(f"[{datetime.now()}] Resetting rclone stats...")
+    print(f"[{datetime.now()}] Resetting rclone stats...", flush=True)
     rclone_rc_call("core/stats-reset")
 
     # Using sync/copy as it's safer than sync/sync for backups
@@ -70,8 +70,10 @@ def run_backup(job):
     }
     res = rclone_rc_call("sync/copy", params)
     if res and 'jobid' in res:
-        print(f"[{datetime.now()}] Backup {job['name']} started. Job ID: {res['jobid']}")
+        print(f"[{datetime.now()}] Backup {job['name']} started. Job ID: {res['jobid']}", flush=True)
         return res['jobid']
+    else:
+        print(f"[{datetime.now()}] Failed to start backup {job['name']}", flush=True)
     return None
 
 def mount_remotes():
@@ -90,7 +92,8 @@ def mount_remotes():
 # --- SCHEDULER ---
 
 def scheduler():
-    print(f"[{datetime.now()}] Scheduler started.")
+    import sys
+    print(f"[{datetime.now()}] Scheduler started.", flush=True)
     last_run = {} # Keep track of last run time per job to avoid double starts
 
     while True:
@@ -99,11 +102,11 @@ def scheduler():
         current_time = now.strftime("%H:%M")
         current_day = now.weekday() + 1  # Monday = 1, Sunday = 7 (to match our frontend)
 
-        # Only log every 5 minutes to reduce noise
-        should_log = now.minute % 5 == 0 and now.second < 30
+        # Log every minute for better monitoring
+        should_log = now.second < 30
 
         if should_log:
-            print(f"[{datetime.now()}] Scheduler check - Time: {current_time}, Day: {current_day}, Jobs: {len(jobs)}, Timezone: {now.tzinfo}")
+            print(f"[{datetime.now()}] Scheduler check - Time: {current_time}, Day: {current_day}, Jobs: {len(jobs)}", flush=True)
 
         for job in jobs:
             job_name = job.get('name', job.get('id', 'unknown'))
@@ -117,6 +120,8 @@ def scheduler():
                 if isinstance(schedule, str):
                     # Old format: just time string (backwards compatibility)
                     should_run = schedule == current_time
+                    if should_run:
+                        print(f"[{datetime.now()}] OLD FORMAT: Job '{job_name}' scheduled for {schedule}", flush=True)
                 elif isinstance(schedule, dict) and 'time' in schedule:
                     # New format: {time: "HH:MM", days: [1,2,3,4,5]}
                     schedule_time = schedule['time']
@@ -127,19 +132,19 @@ def scheduler():
                     should_run = time_match and day_match
 
                     if should_run:
-                        print(f"[{datetime.now()}] SCHEDULED RUN: Job '{job_name}' should run at {current_time} on day {current_day}")
+                        print(f"[{datetime.now()}] SCHEDULED RUN: Job '{job_name}' should run at {current_time} on day {current_day} (days: {schedule_days})", flush=True)
 
                 if should_run:
                     job_id = job.get('id')
                     run_key = f"{job_id}_{current_time}_{current_day}"
                     if last_run.get(job_id) != run_key:
-                        print(f"[{datetime.now()}] EXECUTING scheduled run for job {job_name}")
+                        print(f"[{datetime.now()}] EXECUTING scheduled run for job {job_name}", flush=True)
                         run_backup(job)
                         last_run[job_id] = run_key
                     else:
-                        print(f"[{datetime.now()}] Skipping duplicate run for job {job_name}")
+                        print(f"[{datetime.now()}] Skipping duplicate run for job {job_name}", flush=True)
 
-        time.sleep(30)
+        time.sleep(60)  # Check every minute instead of 30 seconds
 
 # --- API & SERVER ---
 
@@ -154,11 +159,11 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             jobs = json.loads(post_data)
 
             # Debug: print received jobs
-            print(f"[{datetime.now()}] Received jobs via POST:")
+                    print(f"[{datetime.now()}] Received jobs via POST:", flush=True)
             for job in jobs:
                 job_name = job.get('name', 'unnamed')
                 job_schedule = job.get('schedule')
-                print(f"[{datetime.now()}] Job '{job_name}' - schedule: {job_schedule}")
+                print(f"[{datetime.now()}] Job '{job_name}' - schedule: {job_schedule}", flush=True)
 
             save_jobs(jobs)
             self.send_response(200)
@@ -209,11 +214,11 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             now = datetime.now()
             jobs_data = load_jobs()
 
-            print(f"[{datetime.now()}] Scheduler status requested. Jobs in file: {len(jobs_data)}")
+            print(f"[{datetime.now()}] Scheduler status requested. Jobs in file: {len(jobs_data)}", flush=True)
             for job in jobs_data:
                 job_name = job.get('name', 'unnamed')
                 job_schedule = job.get('schedule')
-                print(f"[{datetime.now()}] File job '{job_name}' - schedule: {job_schedule}")
+                print(f"[{datetime.now()}] File job '{job_name}' - schedule: {job_schedule}", flush=True)
 
             status = {
                 'current_time': now.strftime("%H:%M:%S"),
@@ -238,15 +243,15 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             return super().do_GET()
 
 def run_server():
-    print(f"[{datetime.now()}] Checking rclone connection at {RCLONE_RC_URL}...")
+    print(f"[{datetime.now()}] Checking rclone connection at {RCLONE_RC_URL}...", flush=True)
     version = rclone_rc_call("core/version")
     if version:
-        print(f"[{datetime.now()}] Connected to rclone version: {version.get('version')}")
+        print(f"[{datetime.now()}] Connected to rclone version: {version.get('version')}", flush=True)
     else:
-        print(f"[{datetime.now()}] WARNING: Could not connect to rclone. Make sure it's running with --rc.")
+        print(f"[{datetime.now()}] WARNING: Could not connect to rclone. Make sure it's running with --rc.", flush=True)
 
     with socketserver.TCPServer(("", PORT), RcloneManagerHandler) as httpd:
-        print(f"[{datetime.now()}] Serving UI at http://localhost:{PORT}")
+        print(f"[{datetime.now()}] Serving UI at http://localhost:{PORT}", flush=True)
         httpd.serve_forever()
 
 if __name__ == "__main__":

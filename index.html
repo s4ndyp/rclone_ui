@@ -744,7 +744,7 @@
             };
 
             update();
-            systemStatsInterval = setInterval(update, 5000); // Update every 5s
+            systemStatsInterval = setInterval(update, 60000); // Update every 60s (1 minute)
         }
 
         function stopSystemStats() {
