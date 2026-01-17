@@ -159,7 +159,7 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             jobs = json.loads(post_data)
 
             # Debug: print received jobs
-                    print(f"[{datetime.now()}] Received jobs via POST:", flush=True)
+            print(f"[{datetime.now()}] Received jobs via POST:", flush=True)
             for job in jobs:
                 job_name = job.get('name', 'unnamed')
                 job_schedule = job.get('schedule')
