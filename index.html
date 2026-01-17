@@ -476,6 +476,7 @@
         let monitoringInterval = null;
         let activeJobProgress = { bytes: 0, totalBytes: 0, percentage: 0 }; // Track progress for active job
         let systemStatsInterval = null;
+        let scheduledJobsMonitor = null; // Monitor for scheduled jobs
 
         // --- API CORE ---
         async function rcloneRequest(endpoint, body = {}) {
@@ -550,21 +551,7 @@
                         };
                     });
 
-                    // Sync jobs to jobs.json for scheduler
-                    try {
-                        const jobsResponse = await fetch('/api/sync_jobs', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(jobs)
-                        });
-                        if (jobsResponse.ok) {
-                            console.log('Jobs synced to jobs.json for scheduler');
-                        } else {
-                            console.warn('Failed to sync jobs to jobs.json');
-                        }
-                    } catch (error) {
-                        console.warn('Error syncing jobs to jobs.json:', error);
-                    }
+                    // No sync needed - scheduler reads directly from MongoDB
                 }
 
                 
@@ -2224,6 +2211,41 @@
             }
         }
 
+        async function checkForActiveJobs() {
+            try {
+                // Get list of active rclone jobs
+                const jobList = await rcloneRequest('job/list');
+                if (!jobList || !jobList.jobids) return;
+
+                // If we don't have an active job, check for new ones
+                if (!activeRcloneJobId) {
+                    for (const rcloneJobId of jobList.jobids) {
+                        const status = await rcloneRequest('job/status', { jobid: rcloneJobId });
+                        if (status && status.Group === 'transfer' && !status.Finished) {
+                            // This is an active transfer job - likely scheduled
+                            // Find matching job by source path
+                            const job = jobs.find(j => j.source &&
+                                status.Started &&
+                                new Date() - new Date(status.Started * 1000) < 600000); // Within 10 minutes
+
+                        if (job) {
+                            console.log(`Detected active job: ${job.name} (rclone job ${rcloneJobId}) - starting UI monitoring`);
+                            // Start monitoring this job
+                            activeJobId = job.id;
+                            activeRcloneJobId = rcloneJobId;
+                            renderSidebar();
+                            selectJob(job.id);
+                            monitorJob(job.id, rcloneJobId, 'sync');
+                            break;
+                        }
+                        }
+                    }
+                }
+            } catch (error) {
+                // Ignore errors in active job detection
+            }
+        }
+
         function monitorJob(internalJobId, rcloneJobId, type = 'sync') {
             clearInterval(monitoringInterval);
             let speedSamples = []; // Store speed samples for the chart
@@ -2370,8 +2392,11 @@
                 if (!job.history) job.history = [];
                 job.history.unshift(log);
                 if (job.history.length > 50) job.history.pop();
+                console.log(`Adding log to job ${job.name}:`, log);
                 // Save specific job to Mongo
                 saveJobToMongo(job);
+            } else {
+                console.warn(`Could not find job with id ${jobId} to add log:`, log);
             }
         }
 
@@ -2807,23 +2832,7 @@ Try restarting the Python server.`);
             if (savedJob) {
                 console.log('Job saved successfully:', savedJob);
 
-                // Also save to jobs.json for scheduler
-                try {
-                    // Get current jobs and add/update the saved job
-                    const currentJobs = await manager.getCollection('jobs');
-                    const jobsResponse = await fetch('/api/sync_jobs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(currentJobs || [])
-                    });
-                    if (jobsResponse.ok) {
-                        console.log('Jobs synced to jobs.json for scheduler');
-                    } else {
-                        console.warn('Failed to sync jobs to jobs.json');
-                    }
-                } catch (error) {
-                    console.warn('Error syncing jobs to jobs.json:', error);
-                }
+                // No need to sync - scheduler reads directly from MongoDB
 
                 closeJobModal();
                 selectJob(savedJob.id || savedJob._id);
@@ -2857,6 +2866,9 @@ Try restarting the Python server.`);
         initializeTimezoneOffset();
         // Initial connection check
         rcloneRequest('core/version').then(res => updateStatus(!!res));
+        // Start active jobs monitoring
+        checkForActiveJobs();
+        scheduledJobsMonitor = setInterval(checkForActiveJobs, 15000); // Check every 15 seconds
     </script>
 </body>
 </html>
