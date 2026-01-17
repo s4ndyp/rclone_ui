@@ -520,11 +520,35 @@
                 // Fetch jobs from MongoDB
                 const remoteJobs = await manager.getCollection('jobs');
                 if (Array.isArray(remoteJobs)) {
-                    jobs = remoteJobs.map(j => ({
-                        ...j,
-                        id: j.id || j._id, // Ensure we have an id for internal use
-                        _id: j._id // Keep MongoDB _id for updates
-                    }));
+                    // Load schedules from separate collection
+                    const schedules = await manager.getCollection('job_schedules');
+                    const scheduleMap = {};
+                    schedules.forEach(s => {
+                        if (s.jobId) {
+                            scheduleMap[s.jobId] = s;
+                        }
+                    });
+
+                    jobs = remoteJobs.map(j => {
+                        const jobId = j.id || j._id;
+                        let schedule = j.schedule;
+
+                        // If schedule is a reference, load the actual schedule data
+                        if (schedule && typeof schedule === 'object' && schedule._id && scheduleMap[jobId]) {
+                            const scheduleDoc = scheduleMap[jobId];
+                            schedule = {
+                                time: scheduleDoc.time,
+                                days: scheduleDoc.days || []
+                            };
+                        }
+
+                        return {
+                            ...j,
+                            id: jobId, // Ensure we have an id for internal use
+                            _id: j._id, // Keep MongoDB _id for updates
+                            schedule: schedule
+                        };
+                    });
 
                     // Sync jobs to jobs.json for scheduler
                     try {
@@ -709,22 +733,18 @@
                  // The MongoManager uses data._id for save, but delete takes an id.
                  
                 const mongoId = job._id || job.id;
-                await manager.deleteDocument('jobs', mongoId);
 
-                // Sync remaining jobs to jobs.json for scheduler
-                try {
-                    const remainingJobs = jobs.filter(j => j.id !== jobId);
-                    const jobsResponse = await fetch('/api/sync_jobs', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(remainingJobs)
-                    });
-                    if (jobsResponse.ok) {
-                        console.log('Jobs synced to jobs.json after deletion');
+                // Delete associated schedule if it exists
+                if (job.schedule && typeof job.schedule === 'object' && job.schedule._id) {
+                    try {
+                        await manager.deleteDocument('job_schedules', job.schedule._id);
+                        console.log('Associated schedule deleted');
+                    } catch (error) {
+                        console.warn('Failed to delete associated schedule:', error);
                     }
-                } catch (error) {
-                    console.warn('Error syncing jobs after deletion:', error);
                 }
+
+                await manager.deleteDocument('jobs', mongoId);
              } catch(e) {
                  console.error("Failed to delete job:", e);
                  alert("Kon taak niet verwijderen van de server.");
@@ -1438,7 +1458,7 @@
                         <button onclick="startJob('${job.id}')" class="flex-1 bg-green-900/40 hover:bg-green-600 text-green-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-green-800/30">
                             <i class="fa-solid fa-play text-[8px]"></i> START
                         </button>
-                        <button onclick="editJob('${job.id}')" class="flex-1 bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30">
+                        <button onclick="editJob('${job.id}').catch(console.error)" class="flex-1 bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30">
                             <i class="fa-solid fa-edit text-[8px]"></i> EDIT
                         </button>
                     </div>
@@ -1478,7 +1498,7 @@
             document.getElementById('btnRunNow').onclick = () => startJob(id);
             document.getElementById('btnCheckJob').onclick = () => startJob(id, true);
             document.getElementById('btnStopJob').onclick = () => stopJob(id);
-            document.getElementById('btnEditJob').onclick = () => editJob(id);
+            document.getElementById('btnEditJob').onclick = () => editJob(id).catch(console.error);
             document.getElementById('btnDeleteJob').onclick = () => deleteJob(id);
 
             // Reset UI for run/stop
@@ -1602,7 +1622,7 @@
                     scheduleTime = job.schedule;
                     scheduleDays = [1, 2, 3, 4, 5]; // Default Monday-Friday
                 } else if (typeof job.schedule === 'object' && job.schedule.time) {
-                    // New format: { time, days }
+                    // Schedule data is already loaded from separate collection
                     scheduleTime = job.schedule.time;
                     scheduleDays = job.schedule.days || [1, 2, 3, 4, 5];
                 } else {
@@ -2393,23 +2413,40 @@
             document.getElementById('jobModal').classList.remove('hidden');
         }
 
-        function editJob(id) {
+        async function editJob(id) {
             const job = jobs.find(j => j.id === id);
             document.getElementById('editJobId').value = job.id;
             document.getElementById('jobName').value = job.name;
             document.getElementById('jobType').value = job.type || 'backup';
 
-            // Handle schedule - backwards compatibility
+            // Handle schedule - load from separate collection if referenced
             let scheduleTime = '';
             let scheduleDays = [];
+
             if (job.schedule) {
                 if (typeof job.schedule === 'string') {
                     // Old format: just time string
                     scheduleTime = job.schedule;
                     scheduleDays = [1, 2, 3, 4, 5]; // Default Monday-Friday
-                } else if (typeof job.schedule === 'object') {
-                    // New format: { time, days } - convert backend time to frontend time for display
-                    scheduleTime = convertBackendTimeToFrontend(job.schedule.time || '00:00');
+                } else if (typeof job.schedule === 'object' && job.schedule._id) {
+                    // New format: reference to separate schedule document
+                    try {
+                        const scheduleDoc = await manager.getDocument('job_schedules', job.schedule._id);
+                        if (scheduleDoc) {
+                            scheduleTime = convertBackendTimeToFrontend(scheduleDoc.time || '00:00');
+                            scheduleDays = scheduleDoc.days || [];
+                        }
+                    } catch (error) {
+                        console.warn('Failed to load schedule from separate collection:', error);
+                        // Fallback to inline schedule if available
+                        if (job.schedule.time) {
+                            scheduleTime = convertBackendTimeToFrontend(job.schedule.time);
+                            scheduleDays = job.schedule.days || [];
+                        }
+                    }
+                } else if (typeof job.schedule === 'object' && job.schedule.time) {
+                    // Legacy inline schedule
+                    scheduleTime = convertBackendTimeToFrontend(job.schedule.time);
                     scheduleDays = job.schedule.days || [];
                 }
             }
@@ -2674,14 +2711,59 @@ Try restarting the Python server.`);
 
             // Build schedule object with timezone correction
             let schedule = null;
+            let scheduleId = null;
+
             if (scheduleTime) {
                 // Convert frontend time to backend time
                 const backendTime = convertFrontendTimeToBackend(scheduleTime);
                 const days = scheduleDaysStr ? scheduleDaysStr.split(',').map(d => parseInt(d)) : [1, 2, 3, 4, 5];
-                schedule = {
+
+                // Create schedule document
+                const scheduleDoc = {
                     time: backendTime,
-                    days: days
+                    days: days,
+                    jobId: existingId || Date.now().toString(),
+                    enabled: true
                 };
+
+                // Save schedule to separate collection
+                try {
+                    if (existingId) {
+                        // Try to find existing schedule for this job
+                        const existingSchedules = await manager.getCollection('job_schedules');
+                        const existingSchedule = existingSchedules.find(s => s.jobId === existingId);
+
+                        if (existingSchedule) {
+                            // Update existing schedule
+                            scheduleDoc._id = existingSchedule._id;
+                            await manager.putDocument('job_schedules', existingSchedule._id, scheduleDoc);
+                            scheduleId = existingSchedule._id;
+                        } else {
+                            // Create new schedule
+                            const savedSchedule = await manager.postDocument('job_schedules', scheduleDoc);
+                            scheduleId = savedSchedule._id;
+                        }
+                    } else {
+                        // Create new schedule for new job
+                        const savedSchedule = await manager.postDocument('job_schedules', scheduleDoc);
+                        scheduleId = savedSchedule._id;
+                    }
+
+                    schedule = {
+                        _id: scheduleId,
+                        time: backendTime,
+                        days: days
+                    };
+
+                } catch (error) {
+                    console.warn('Failed to save schedule:', error);
+                    // Fallback: store schedule inline
+                    schedule = {
+                        time: backendTime,
+                        days: days
+                    };
+                }
+
                 console.log(`Schedule conversion: Frontend ${scheduleTime} → Backend ${backendTime} (offset: ${backendTimezoneOffset}h)`);
                 console.log('Backend timezone offset value:', backendTimezoneOffset);
                 console.log('Saving job with schedule:', schedule);
@@ -2696,16 +2778,17 @@ Try restarting the Python server.`);
                 if (jobIndex > -1) {
                     jobToSave = {
                         ...jobs[jobIndex],
-                        name, type, schedule, source, dest, excludes
+                        name, type, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes
                     };
                 }
             }
-            
+
             if (!jobToSave) {
                  // New job
+                 const jobId = Date.now().toString();
                  jobToSave = {
-                    id: Date.now().toString(), // Temp ID, will be replaced/augmented by _id
-                    name, type, schedule, source, dest, excludes,
+                    id: jobId, // Temp ID, will be replaced/augmented by _id
+                    name, type, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes,
                     history: []
                  };
             }

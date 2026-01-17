@@ -16,6 +16,11 @@ RCLONE_USER = os.environ.get('RCLONE_USER', '')
 RCLONE_PASS = os.environ.get('RCLONE_PASS', '')
 JOBS_FILE = os.environ.get('JOBS_FILE', 'jobs.json')
 
+# MongoDB configuration for direct access
+MONGODB_URL = os.environ.get('MONGODB_URL', 'http://10.10.2.20:5000')
+CLIENT_ID = os.environ.get('CLIENT_ID', 'sandman')
+APP_NAME = os.environ.get('APP_NAME', 'rclone')
+
 # Default to current directory if index.html is present, otherwise 'New UI'
 default_ui_dir = '.' if os.path.exists('index.html') else 'New UI'
 UI_DIR = os.environ.get('UI_DIR', default_ui_dir)
@@ -51,6 +56,53 @@ def load_jobs():
 def save_jobs(jobs):
     with open(JOBS_FILE, 'w') as f:
         json.dump(jobs, f, indent=4)
+
+# --- MONGODB CLIENT ---
+class MongoClient:
+    def __init__(self, base_url, client_id, app_name):
+        self.base_url = base_url
+        self.client_id = client_id
+        self.app_name = app_name
+
+    def _get_url(self, collection_name, id=None):
+        url = f"{self.base_url}/api/{self.app_name}_{collection_name}"
+        if id:
+            url += f"/{id}"
+        return url
+
+    def get_collection(self, name):
+        """Get all documents from a collection"""
+        try:
+            import urllib.request
+            import urllib.parse
+            import json
+
+            url = self._get_url(name)
+            req = urllib.request.Request(url, headers={'x-client-id': self.client_id})
+
+            with urllib.request.urlopen(req) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except Exception as e:
+            print(f"[{datetime.now()}] MongoDB get_collection error for {name}: {e}", flush=True)
+            return []
+
+    def get_document(self, name, id):
+        """Get a single document by ID"""
+        try:
+            import urllib.request
+            import json
+
+            url = self._get_url(name, id)
+            req = urllib.request.Request(url, headers={'x-client-id': self.client_id})
+
+            with urllib.request.urlopen(req) as response:
+                return json.loads(response.read().decode('utf-8'))
+        except Exception as e:
+            print(f"[{datetime.now()}] MongoDB get_document error for {name}/{id}: {e}", flush=True)
+            return None
+
+# Global MongoDB client
+mongo_client = MongoClient(MONGODB_URL, CLIENT_ID, APP_NAME)
 
 # --- TASKS ---
 
@@ -93,11 +145,44 @@ def mount_remotes():
 
 def scheduler():
     import sys
-    print(f"[{datetime.now()}] Scheduler started.", flush=True)
+    print(f"[{datetime.now()}] Scheduler started - using MongoDB direct access.", flush=True)
     last_run = {} # Keep track of last run time per job to avoid double starts
 
     while True:
-        jobs = load_jobs()
+        # Load jobs directly from MongoDB instead of jobs.json
+        mongo_jobs = mongo_client.get_collection('jobs')
+        jobs = []
+
+        # Convert MongoDB jobs to scheduler format
+        for job in mongo_jobs:
+            job_id = job.get('id') or job.get('_id')
+            schedule_data = None
+
+            # Load schedule from separate collection if referenced
+            job_schedule = job.get('schedule')
+            if job_schedule and isinstance(job_schedule, dict) and job_schedule.get('_id'):
+                schedule_doc = mongo_client.get_document('job_schedules', job_schedule['_id'])
+                if schedule_doc:
+                    schedule_data = {
+                        'time': schedule_doc.get('time'),
+                        'days': schedule_doc.get('days', [])
+                    }
+            elif job_schedule and isinstance(job_schedule, dict):
+                # Legacy inline schedule
+                schedule_data = job_schedule
+
+            scheduler_job = {
+                'id': job_id,
+                'name': job.get('name'),
+                'type': job.get('type'),
+                'source': job.get('source'),
+                'dest': job.get('dest'),
+                'schedule': schedule_data,
+                'enabled': job.get('enabled', True),
+                'excludes': job.get('excludes', [])
+            }
+            jobs.append(scheduler_job)
+
         now = datetime.now()
         current_time = now.strftime("%H:%M")
         current_day = now.weekday() + 1  # Monday = 1, Sunday = 7 (to match our frontend)
@@ -106,7 +191,7 @@ def scheduler():
         should_log = now.second < 30
 
         if should_log:
-            print(f"[{datetime.now()}] Scheduler check - Time: {current_time}, Day: {current_day}, Jobs: {len(jobs)}", flush=True)
+            print(f"[{datetime.now()}] Scheduler check - Time: {current_time}, Day: {current_day}, Jobs: {len(jobs)} (from MongoDB)", flush=True)
 
         for job in jobs:
             job_name = job.get('name', job.get('id', 'unknown'))
@@ -200,8 +285,38 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
             data = json.loads(post_data)
-            jobs = load_jobs()
-            job = next((j for j in jobs if j['id'] == data['id']), None)
+
+            # Load job directly from MongoDB
+            job_doc = mongo_client.get_document('jobs', data['id'])
+            if job_doc:
+                job_id = job_doc.get('id') or job_doc.get('_id')
+                schedule_data = None
+
+                # Load schedule from separate collection if referenced
+                job_schedule = job_doc.get('schedule')
+                if job_schedule and isinstance(job_schedule, dict) and job_schedule.get('_id'):
+                    schedule_doc = mongo_client.get_document('job_schedules', job_schedule['_id'])
+                    if schedule_doc:
+                        schedule_data = {
+                            'time': schedule_doc.get('time'),
+                            'days': schedule_doc.get('days', [])
+                        }
+                elif job_schedule and isinstance(job_schedule, dict):
+                    # Legacy inline schedule
+                    schedule_data = job_schedule
+
+                job = {
+                    'id': job_id,
+                    'name': job_doc.get('name'),
+                    'type': job_doc.get('type'),
+                    'source': job_doc.get('source'),
+                    'dest': job_doc.get('dest'),
+                    'schedule': schedule_data,
+                    'enabled': job_doc.get('enabled', True),
+                    'excludes': job_doc.get('excludes', [])
+                }
+            else:
+                job = None
             if job:
                 jobid = run_backup(job)
                 self.send_response(200)
@@ -284,11 +399,15 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
                 'current_day': now.weekday() + 1,  # Monday = 1, Sunday = 7
                 'timezone': str(now.tzinfo) if now.tzinfo else 'UTC',
                 'jobs_count': len(jobs_data),
+                # Load schedules for status display
+                schedules_data = mongo_client.get_collection('job_schedules')
+                schedule_map = {s.get('jobId'): s for s in schedules_data}
+
                 'jobs': [
                     {
                         'name': job.get('name', 'unnamed'),
                         'type': job.get('type'),
-                        'schedule': job.get('schedule'),
+                        'schedule': schedule_map.get(job.get('id') or job.get('_id'), {}).get('time') if schedule_map.get(job.get('id') or job.get('_id')) else None,
                         'enabled': job.get('enabled', True)
                     }
                     for job in jobs_data
