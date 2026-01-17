@@ -1270,7 +1270,8 @@
                 document.getElementById('remoteUser').value = config.parameters?.user || '';
                 document.getElementById('remotePass').value = config.parameters?.pass || '';
             } else if (remoteType === 'local') {
-                // For local remotes, we don't have a path parameter stored, so leave empty
+                // For local remotes, try to get a hint from the job configs or leave empty
+                // Since we don't store the path in Rclone config, we'll leave it empty for editing
                 document.getElementById('remotePath').value = '';
             }
 
@@ -1345,11 +1346,33 @@
             } else if (remoteType === 'local') {
                 const path = document.getElementById('remotePath').value;
 
+                // For local remotes, we can optionally set a root path
+                // But for now, we'll keep it simple and just validate the path
                 params = {
                     name: name,
                     type: "local",
                     parameters: {}
                 };
+
+                // Validate that a path is provided for user reference
+                if (!path.trim()) {
+                    alert('Geef een lokale pad op voor de remote.');
+                    return;
+                }
+
+                console.log(`Local remote "${name}" created. Access with: ${name}:${path}`);
+
+                // Try a quick test to see if the remote works
+                try {
+                    const testRes = await rcloneRequest('operations/list', { fs: name + ':', remote: '' });
+                    if (!testRes) {
+                        console.warn(`Warning: Could not list root of local remote "${name}". This might be normal if the path doesn't exist yet.`);
+                    } else {
+                        console.log(`Local remote "${name}" is accessible`);
+                    }
+                } catch (e) {
+                    console.warn(`Warning: Could not test local remote "${name}":`, e);
+                }
             }
 
             try {
@@ -2075,10 +2098,14 @@
                 }
                 tbody.innerHTML = '';
                 Object.keys(res).forEach(name => {
+                    const config = res[name];
                     const tr = document.createElement('tr');
                     tr.className = "hover:bg-darkborder/30 cursor-pointer text-blue-200";
-                    tr.onclick = () => browseSelectorPath(name + ':');
-                    tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-database text-purple-400"></i></td><td class="p-3">${name}:</td>`;
+                    // For local remotes, start with the remote name only
+                    // For network remotes, start with remote name + colon
+                    const startPath = config.type === 'local' ? name : name + ':';
+                    tr.onclick = () => browseSelectorPath(startPath);
+                    tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-${config.type === 'local' ? 'folder' : 'database'} text-${config.type === 'local' ? 'yellow' : 'purple'}-400"></i></td><td class="p-3">${name}${config.type === 'local' ? '' : ':'}</td>`;
                     tbody.appendChild(tr);
                 });
                 return;
@@ -2091,6 +2118,10 @@
             if (colonIdx !== -1) {
                 fs = fullPath.substring(0, colonIdx + 1);
                 remotePath = fullPath.substring(colonIdx + 1);
+            } else {
+                // For local remotes without colon, add it
+                fs = fullPath + ':';
+                remotePath = "";
             }
 
             const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
