@@ -2851,21 +2851,26 @@ Try restarting the Python server.`);
                 const response = await fetch('/api/scheduled_triggers');
                 if (response.ok) {
                     const triggers = await response.json();
-                    for (const trigger of triggers) {
-                        if (trigger.jobId) {
-                            console.log(`Processing scheduled trigger for job ${trigger.jobId}`);
-                            const result = await startScheduledJob(trigger.jobId);
-                            console.log(`Scheduled job result:`, result);
+                    if (triggers.length > 0) {
+                        console.log(`🔥 Received ${triggers.length} scheduled triggers:`, triggers);
+                        for (const trigger of triggers) {
+                            if (trigger.jobId) {
+                                console.log(`🚀 Processing scheduled trigger for job ${trigger.jobId}`);
+                                const result = await startScheduledJob(trigger.jobId);
+                                console.log(`✅ Scheduled job result:`, result);
+                            }
                         }
                     }
+                } else {
+                    console.warn(`⚠️ Scheduled triggers endpoint returned ${response.status}`);
                 }
             } catch (error) {
-                // Ignore polling errors silently
+                console.warn(`❌ Error polling scheduled triggers:`, error);
             }
         }
 
-        // Check for scheduled triggers every 10 seconds
-        setInterval(checkScheduledTriggers, 10000);
+        // Check for scheduled triggers every 5 seconds (for debugging)
+        setInterval(checkScheduledTriggers, 5000);
     </script>
 </body>
 </html>

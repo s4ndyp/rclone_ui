@@ -260,21 +260,6 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps({"error": "Missing jobId"}).encode())
-        elif self.path == '/api/scheduled_triggers':
-            # Return pending triggers and clear them
-            global pending_triggers
-            triggers_to_send = [t for t in pending_triggers if not t['processed']]
-            # Mark as processed
-            for trigger in triggers_to_send:
-                trigger['processed'] = True
-
-            self.send_response(200)
-            self.send_header('Content-type', 'application/json')
-            self.end_headers()
-            self.wfile.write(json.dumps(triggers_to_send).encode())
-
-            # Clean up old processed triggers (keep last 100)
-            pending_triggers = [t for t in pending_triggers if t['processed']][-100:]
         else:
             # Proxy to rclone RC
             if self.path.startswith('/rc/'):
@@ -368,6 +353,26 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(status, indent=2).encode())
+        elif self.path == '/api/scheduled_triggers':
+            # Return pending triggers and clear them
+            global pending_triggers
+            triggers_to_send = [t for t in pending_triggers if not t['processed']]
+
+            print(f"[{datetime.now()}] Serving {len(triggers_to_send)} pending triggers", flush=True)
+
+            # Mark as processed
+            for trigger in triggers_to_send:
+                trigger['processed'] = True
+
+            self.send_response(200)
+            self.send_header('Content-type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps(triggers_to_send).encode())
+
+            # Clean up old processed triggers (keep last 100)
+            pending_triggers = [t for t in pending_triggers if t['processed']][-100:]
+
+            print(f"[{datetime.now()}] Triggers served, {len(pending_triggers)} remaining in queue", flush=True)
         else:
             return super().do_GET()
 
