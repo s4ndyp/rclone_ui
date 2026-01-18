@@ -44,7 +44,7 @@
                 <i class="fa-solid fa-plus-circle"></i> Nieuwe Taak
             </button>
         </div>
-
+        
         <nav class="mt-4 flex-1">
             <div class="px-4 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Management</div>
             <a href="#" onclick="showSection('backups')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition active-link" id="nav-backups">
@@ -404,20 +404,20 @@
                 </div>
                 <!-- SMB/CIFS Fields -->
                 <div id="smbFields" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Host (IP of Hostnaam)</label>
+                    <input type="text" id="remoteHost" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="192.168.1.100" required>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Host (IP of Hostnaam)</label>
-                        <input type="text" id="remoteHost" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="192.168.1.100" required>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Gebruikersnaam</label>
+                        <input type="text" id="remoteUser" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="admin">
                     </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Gebruikersnaam</label>
-                            <input type="text" id="remoteUser" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="admin">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wachtwoord</label>
-                            <input type="password" id="remotePass" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="*****">
-                        </div>
+                    <div>
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Wachtwoord</label>
+                        <input type="password" id="remotePass" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white" placeholder="*****">
                     </div>
+                </div>
                     <p class="text-[10px] text-gray-500">Let op: Dit maakt een SMB/CIFS remote aan in de Rclone configuratie.</p>
                 </div>
 
@@ -454,9 +454,9 @@
                     <div class="col-span-2" id="syncModeContainer" style="display: none;">
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Sync Modus (voor backup jobs)</label>
                         <select id="jobSyncMode" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none">
-                            <option value="sync">Sync (tweerichtings synchronisatie)</option>
-                            <option value="copy">Copy (eenrichtings kopiëren)</option>
-                            <option value="move">Move (verplaatsen naar destination)</option>
+                            <option value="sync" style="color: yellow;">Sync - copy & verwijder op destination</option>
+                            <option value="copy" style="color: green;">Copy - copy maar verwijder niet op destination</option>
+                            <option value="move" style="color: red;">Move (verplaatsen naar destination)</option>
                         </select>
                     </div>
                     <div>
@@ -705,7 +705,7 @@
         async function checkDailyTaskStatsSync() {
             const today = new Date().toISOString().split('T')[0];
             const lastSync = localStorage.getItem('last_task_stats_sync');
-
+            
             if (lastSync !== today) {
                 console.log("Daily task stats sync starting...");
                 await updateAllTaskRemStats();
@@ -718,11 +718,11 @@
             for (const job of jobs) {
                 if (job.source) {
                     await updateTaskRemStats(job.id, job.source);
-                }
+            }
                 if (job.dest) {
                     await updateTaskRemStats(job.id, job.dest);
-                }
             }
+        }
         }
 
 
@@ -731,11 +731,11 @@
 
             try {
                 const size = await rcloneRequest('operations/size', { fs: path });
-
+            
                 if (size) {
-                    const today = new Date().toISOString().split('T')[0];
-                    const newEntry = {
-                        date: today,
+                const today = new Date().toISOString().split('T')[0];
+                const newEntry = {
+                    date: today,
                         size: size.bytes,
                         count: size.count
                     };
@@ -765,12 +765,12 @@
                     if (existingRecord) {
                         // Update existing record
                         const record = existingRecord;
-                        if (!record.history) record.history = [];
-
-                        // Remove today's entry if exists (overwrite)
-                        record.history = record.history.filter(h => h.date !== today);
-                        record.history.push(newEntry);
-                        record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
+                if (!record.history) record.history = [];
+                
+                // Remove today's entry if exists (overwrite)
+                record.history = record.history.filter(h => h.date !== today);
+                record.history.push(newEntry);
+                record.history.sort((a, b) => new Date(a.date) - new Date(b.date));
 
                         // Save to Mongo with PUT using the MongoDB _id
                         await manager.putDocument('taskremstats', record._id, record);
@@ -784,14 +784,14 @@
 
                         // Save to Mongo with POST
                         const savedRecord = await manager.postDocument('taskremstats', record);
-
+                
                         // Store the MongoDB _id in mapping for future use
                         if (savedRecord && savedRecord._id) {
                             taskRemStatsMapping[statsId] = savedRecord._id;
                         }
-                    }
-
-                    return record;
+                }
+                
+                return record;
                 }
             } catch (e) {
                 console.warn(`Failed to get size for ${path}:`, e);
@@ -807,7 +807,7 @@
             }
             // Fallback: try direct lookup (for backwards compatibility)
             return await manager.getDocument('taskremstats', statsId);
-        }
+            }
 
 
         async function saveJobToMongo(job) {
@@ -858,7 +858,7 @@
                  // We need the actual _id for the API call if it differs from id.
                  // The MongoManager uses data._id for save, but delete takes an id.
                  
-                const mongoId = job._id || job.id;
+                 const mongoId = job._id || job.id; 
 
                 // Delete associated schedule if it exists
                 if (job.schedule && typeof job.schedule === 'object' && job.schedule._id) {
@@ -942,16 +942,16 @@
                 'stats': 'Systeem Statistieken'
             };
             document.getElementById('sectionTitle').innerText = titles[section] || 'Dashboard';
-
+            
             document.getElementById('nav-backups').classList.toggle('active-link', section === 'backups');
             document.getElementById('nav-mounts').classList.toggle('active-link', section === 'mounts');
             document.getElementById('nav-remotes').classList.toggle('active-link', section === 'remotes');
             document.getElementById('nav-browser').classList.toggle('active-link', section === 'browser');
             document.getElementById('nav-stats').classList.toggle('active-link', section === 'stats');
-
+            
             activeJobId = null;
             activeRemoteName = null;
-
+            
             document.getElementById('jobDetail').classList.add('hidden');
             document.getElementById('browserView').classList.add('hidden');
             document.getElementById('remotesView').classList.add('hidden');
@@ -1536,18 +1536,18 @@
 
                 if (!record || !record.history || record.history.length === 0) {
                     const ctx = canvas.getContext('2d');
-                    ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-                    ctx.font = '14px Arial';
-                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
-                    ctx.textAlign = 'center';
+                     ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+                     ctx.font = '14px Arial';
+                     ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                     ctx.textAlign = 'center';
                     ctx.fillText('Nog geen remstats beschikbaar', ctx.canvas.width / 2, ctx.canvas.height / 2);
-                    return;
+                     return;
                 }
 
                 const labels = record.history.map(h => h.date);
                 const sizeData = record.history.map(h => {
                     const gb = h.size / 1024 / 1024 / 1024;
-                    return gb;
+                    return gb; 
                 });
                 const countData = record.history.map(h => h.count);
 
@@ -1818,19 +1818,19 @@
 
             let params;
             if (remoteType === 'smb') {
-                const host = document.getElementById('remoteHost').value;
-                const user = document.getElementById('remoteUser').value;
-                const pass = document.getElementById('remotePass').value;
+            const host = document.getElementById('remoteHost').value;
+            const user = document.getElementById('remoteUser').value;
+            const pass = document.getElementById('remotePass').value;
 
                 params = {
-                    name: name,
-                    type: "smb",
-                    parameters: {
-                        host: host,
-                        user: user,
-                        pass: pass
-                    }
-                };
+                name: name,
+                type: "smb",
+                parameters: {
+                    host: host,
+                    user: user,
+                    pass: pass
+                }
+            };
             } else if (remoteType === 'local') {
                 // For local remotes, no parameters needed - path is specified when using the remote
                 params = {
@@ -1879,13 +1879,13 @@
                     }
                 } else {
                     // Nieuwe remote aanmaken
-                    const res = await rcloneRequest('config/create', params);
-                    if (res) {
-                        alert('Remote succesvol aangemaakt!');
-                        closeRemoteModal();
-                        loadRemotes();
-                    } else {
-                        alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
+            const res = await rcloneRequest('config/create', params);
+            if (res) {
+                alert('Remote succesvol aangemaakt!');
+                closeRemoteModal();
+                loadRemotes();
+            } else {
+                alert('Fout bij het aanmaken van de remote. Controleer de gegevens.');
                     }
                 }
             } catch (error) {
@@ -1928,15 +1928,15 @@
                             <div class="min-w-0 flex-1">
                                 <div class="flex items-center justify-between">
                                     <div>
-                                        <div class="font-bold text-white truncate">${name}</div>
-                                        <div class="text-[10px] text-gray-500 truncate uppercase tracking-wider">${config.type}</div>
-                                    </div>
+                                <div class="font-bold text-white truncate">${name}</div>
+                                <div class="text-[10px] text-gray-500 truncate uppercase tracking-wider">${config.type}</div>
+                            </div>
                                     <div class="flex items-center gap-2">
                                         ${host ? `<div class="text-sm font-mono text-cyan-400 font-bold">${host}</div>` : '<div class="text-xs text-gray-500 italic">Geen IP</div>'}
                                         <button onclick="event.stopPropagation(); editRemote('${name}')"
                                                 class="bg-orange-900/30 hover:bg-orange-600 text-orange-400 hover:text-white px-2 py-1 rounded text-[8px] font-bold transition flex items-center gap-1 border border-orange-800/30 uppercase">
                                             <i class="fa-solid fa-edit text-[6px]"></i>
-                                        </button>
+                            </button>
                                     </div>
                                 </div>
                             </div>
@@ -2046,7 +2046,7 @@
 
             document.getElementById('detailTitle').innerText = job.name;
             document.getElementById('detailPaths').innerText = `${job.source} \u2192 ${job.dest}`;
-
+            
             // Handle schedule display for both old and new formats
             let scheduleText = "Geen planning";
             if (job.schedule) {
@@ -2098,11 +2098,11 @@
         function getStatusColor(log) {
             if (log.type === 'check') {
                 const res = log.checkResult || {};
-                const hasIssues = (res.differ && res.differ.length > 0) ||
-                                  (res.missingOnSrc && res.missingOnSrc.length > 0) ||
+                const hasIssues = (res.differ && res.differ.length > 0) || 
+                                  (res.missingOnSrc && res.missingOnSrc.length > 0) || 
                                   (res.missingOnDst && res.missingOnDst.length > 0) ||
                                   (res.difference && res.difference.length > 0); // Fallback
-
+                
                 return hasIssues ? 'bg-yellow-900 text-yellow-200' : 'bg-green-900 text-green-200';
             }
             return log.status === 'Succes' ? 'bg-green-900 text-green-200' : 'bg-red-900 text-red-200';
@@ -2893,9 +2893,9 @@
                     if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
                     if (uiFiles) uiFiles.innerText = `${statsRes.transfers} / ${statsRes.checks}`;
                     if (uiSkipped) uiSkipped.innerText = `${statsRes.deletes + (statsRes.checks - statsRes.transfers)} overgeslagen`;
-
+                    
                     if (uiStatus) uiStatus.innerText = type === 'check' ? "Verifiëren..." : "In uitvoering...";
-
+                    
                     if (uiTime) uiTime.innerText = statsRes.elapsedTime.toFixed(0) + "s";
                     if (uiErrors) {
                         uiErrors.innerText = statsRes.errors + " errors";
@@ -3431,7 +3431,7 @@ Try restarting the Python server.`);
                     };
                 }
             }
-
+            
             if (!jobToSave) {
                  // New job
                  const jobId = Date.now().toString();
@@ -3440,6 +3440,10 @@ Try restarting the Python server.`);
                     name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes,
                     history: []
                  };
+
+                 // Add to jobs array immediately for UI responsiveness
+                 jobs.push(jobToSave);
+                 renderSidebar();
             }
 
             // Debug: log what we're sending
@@ -3452,7 +3456,7 @@ Try restarting the Python server.`);
 
             // Save to Mongo
             const savedJob = await saveJobToMongo(jobToSave);
-
+            
             if (savedJob) {
                 console.log('Job saved successfully:', savedJob);
 
