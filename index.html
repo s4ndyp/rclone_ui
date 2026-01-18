@@ -454,8 +454,8 @@
                     <div class="col-span-2" id="syncModeContainer" style="display: none;">
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Sync Modus (voor backup jobs)</label>
                         <select id="jobSyncMode" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none">
-                            <option value="sync" style="color: yellow;">Sync - copy & verwijder op destination</option>
                             <option value="copy" style="color: green;">Copy - copy maar verwijder niet op destination</option>
+                            <option value="sync" style="color: yellow;">Sync - copy & verwijder op destination</option>
                             <option value="move" style="color: red;">Move (verplaatsen naar destination)</option>
                         </select>
                     </div>
@@ -834,10 +834,10 @@
                 // Update internal state with saved version (to get _id if new)
                 const index = jobs.findIndex(j => j.id === job.id);
                 if (index !== -1) {
-                    jobs[index] = { ...savedJob, id: savedJob.id || savedJob._id };
+                    jobs[index] = { ...savedJob, id: savedJob.id || savedJob._id || job.id };
                 } else {
-                    // Should be already added by form, but if not:
-                    jobs.push({ ...savedJob, id: savedJob.id || savedJob._id });
+                    // New job - add to array
+                    jobs.push({ ...savedJob, id: savedJob.id || savedJob._id || job.id });
                 }
                 renderSidebar();
                 return savedJob;
@@ -3049,6 +3049,11 @@
             // Reset schedule days
             loadScheduleDays([1, 2, 3, 4, 5]); // Default Monday-Friday
             toggleSyncMode(); // Update sync mode visibility
+            updateSyncModeColor(); // Update color for selected value
+
+            // Add event listener for sync mode color updates
+            document.getElementById('jobSyncMode').addEventListener('change', updateSyncModeColor);
+
             document.getElementById('jobModal').classList.remove('hidden');
         }
 
@@ -3056,6 +3061,26 @@
             const jobType = document.getElementById('jobType').value;
             const syncModeContainer = document.getElementById('syncModeContainer');
             syncModeContainer.style.display = jobType === 'backup' ? 'block' : 'none';
+            updateSyncModeColor();
+        }
+
+        function updateSyncModeColor() {
+            const syncModeSelect = document.getElementById('jobSyncMode');
+            const selectedValue = syncModeSelect.value;
+
+            switch(selectedValue) {
+                case 'copy':
+                    syncModeSelect.style.color = 'green';
+                    break;
+                case 'sync':
+                    syncModeSelect.style.color = 'yellow';
+                    break;
+                case 'move':
+                    syncModeSelect.style.color = 'red';
+                    break;
+                default:
+                    syncModeSelect.style.color = 'white';
+            }
         }
 
         async function editJob(id) {
@@ -3065,6 +3090,10 @@
             document.getElementById('jobType').value = job.type || 'backup';
             document.getElementById('jobSyncMode').value = job.syncMode || 'sync';
             toggleSyncMode(); // Update visibility based on type
+            updateSyncModeColor(); // Update color for selected value
+
+            // Add event listener for sync mode color updates
+            document.getElementById('jobSyncMode').addEventListener('change', updateSyncModeColor);
 
             // Handle schedule - load from separate collection if referenced
             let scheduleTime = '';
@@ -3440,10 +3469,6 @@ Try restarting the Python server.`);
                     name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes,
                     history: []
                  };
-
-                 // Add to jobs array immediately for UI responsiveness
-                 jobs.push(jobToSave);
-                 renderSidebar();
             }
 
             // Debug: log what we're sending
@@ -3456,14 +3481,26 @@ Try restarting the Python server.`);
 
             // Save to Mongo
             const savedJob = await saveJobToMongo(jobToSave);
-            
+
             if (savedJob) {
                 console.log('Job saved successfully:', savedJob);
+
+                // Ensure the saved job has the correct ID for UI consistency
+                const jobId = savedJob.id || savedJob._id || jobToSave.id;
+
+                // Update the job in array with correct ID
+                const jobIndex = jobs.findIndex(j => j.id === jobToSave.id || j._id === savedJob._id);
+                if (jobIndex !== -1) {
+                    jobs[jobIndex] = { ...savedJob, id: jobId };
+                }
+
+                // Update sidebar to reflect changes
+                renderSidebar();
 
                 // No need to sync - scheduler reads directly from MongoDB
 
                 closeJobModal();
-                selectJob(savedJob.id || savedJob._id);
+                selectJob(jobId);
             }
         };
 
