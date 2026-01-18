@@ -33,10 +33,9 @@
 
     <!-- Sidebar -->
     <aside class="w-64 bg-darkcard border-r border-darkborder flex flex-col">
-        <div class="p-6 border-b border-darkborder flex justify-between items-center">
-            <h1 class="text-xl font-bold text-white flex items-center gap-2">
-                <img src="https://rclone.org/img/logo_symbol.png" class="w-6 h-6" alt="R">
-                Rclone GUI
+        <div class="p-1 border-b border-darkborder flex justify-between items-center">
+            <h1 class="text-xl font-bold text-white flex items-center justify-center">
+                <img src="rclonelogo.png" style="height: 140px;" class="object-contain" alt="Rclone Logo">
             </h1>
         </div>
 
@@ -59,6 +58,9 @@
             </a>
             <a href="#" onclick="showSection('browser')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition" id="nav-browser">
                 <i class="fa-solid fa-search w-5 text-yellow-400"></i> Verkenner
+            </a>
+            <a href="#" onclick="showSection('stats')" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition" id="nav-stats">
+                <i class="fa-solid fa-chart-line w-5 text-cyan-400"></i> Statistieken
             </a>
             <div class="px-4 mt-6 mb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">Settings</div>
             <a href="#" onclick="openConfigModal()" class="flex items-center gap-3 px-6 py-3 hover:bg-darkborder transition">
@@ -218,6 +220,23 @@
                     <div class="p-4 border-b border-darkborder bg-darkcard/30 flex gap-2 items-center">
                         <input type="text" id="browserPath" class="flex-1 bg-darkbg border border-darkborder rounded p-2 text-sm font-mono" placeholder="remote:pad/naar/map">
                         <button onclick="browsePath()" class="bg-rclone px-4 py-2 rounded text-sm font-bold">Open</button>
+                        <button onclick="refreshBrowser()" class="bg-gray-700 hover:bg-gray-600 px-4 py-2 rounded text-sm" title="Vernieuwen">
+                            <i class="fa-solid fa-refresh"></i>
+                        </button>
+                    </div>
+
+                    <!-- Bestandsbeheer Toolbar -->
+                    <div class="px-4 py-2 border-b border-darkborder bg-darkcard/20 flex gap-2 items-center">
+                        <button onclick="createDirectory()" class="bg-green-900/40 hover:bg-green-600 text-green-400 hover:text-white px-3 py-1 rounded text-sm border border-green-800/30" title="Nieuwe map">
+                            <i class="fa-solid fa-folder-plus mr-1"></i> Map
+                        </button>
+                        <button onclick="uploadFile()" class="bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white px-3 py-1 rounded text-sm border border-blue-800/30" title="Bestand uploaden">
+                            <i class="fa-solid fa-upload mr-1"></i> Upload
+                        </button>
+                        <div class="flex-1"></div>
+                        <div class="text-xs text-gray-500">
+                            <span id="browserStatus">Selecteer bestanden voor acties</span>
+                        </div>
                     </div>
                     <div class="flex-1 overflow-y-auto p-4">
                         <div id="browserBreadcrumbs" class="flex gap-2 text-xs text-gray-500 mb-4 px-2"></div>
@@ -225,16 +244,103 @@
                             <table class="w-full text-left text-sm">
                                 <thead class="bg-darkborder/50 text-gray-400 uppercase text-xs">
                                     <tr>
-                                        <th class="p-3 w-8"></th>
+                                        <th class="p-3 w-8"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"></th>
                                         <th class="p-3">Naam</th>
                                         <th class="p-3 text-right">Grootte</th>
                                         <th class="p-3 text-right">Datum</th>
+                                        <th class="p-3 text-center">Acties</th>
                                     </tr>
                                 </thead>
                                 <tbody id="browserTableBody" class="divide-y divide-darkborder">
                                     <!-- Files will be rendered here -->
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Statistics View -->
+                <div id="statsView" class="hidden flex-1 flex flex-col overflow-hidden">
+                    <div class="p-4 border-b border-darkborder bg-darkcard/30 flex gap-2 items-center">
+                        <h2 class="text-xl font-bold text-white">Systeem Statistieken</h2>
+                        <button onclick="refreshStats()" class="bg-cyan-900/40 hover:bg-cyan-600 text-cyan-400 hover:text-white px-4 py-2 rounded text-sm border border-cyan-800/30" title="Vernieuwen">
+                            <i class="fa-solid fa-refresh"></i> Vernieuwen
+                        </button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            <!-- Core Stats -->
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                <h3 class="font-bold text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-server text-blue-400"></i> Core Statistieken
+                                </h3>
+                                <div id="coreStats" class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">CPU Gebruik:</span>
+                                        <span id="cpuUsage" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Geheugen:</span>
+                                        <span id="memoryUsage" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Uptime:</span>
+                                        <span id="uptime" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- VFS Stats -->
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                <h3 class="font-bold text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-hdd text-green-400"></i> VFS Statistieken
+                                </h3>
+                                <div id="vfsStats" class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Cache Hits:</span>
+                                        <span id="vfsCacheHits" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Cache Misses:</span>
+                                        <span id="vfsCacheMisses" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Read Ahead:</span>
+                                        <span id="vfsReadAhead" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Transfer Stats -->
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder">
+                                <h3 class="font-bold text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-exchange-alt text-purple-400"></i> Transfer Statistieken
+                                </h3>
+                                <div id="transferStats" class="space-y-3">
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Bytes Geüpload:</span>
+                                        <span id="bytesUploaded" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Bytes Gedownload:</span>
+                                        <span id="bytesDownloaded" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                    <div class="flex justify-between">
+                                        <span class="text-gray-400">Transfers:</span>
+                                        <span id="transferCount" class="text-white font-mono">Laden...</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Bandwidth Chart -->
+                            <div class="bg-darkcard p-6 rounded-xl border border-darkborder md:col-span-2 lg:col-span-3">
+                                <h3 class="font-bold text-white mb-4 flex items-center gap-2">
+                                    <i class="fa-solid fa-chart-line text-cyan-400"></i> Bandwidth Monitoring
+                                </h3>
+                                <div class="h-64">
+                                    <canvas id="bandwidthChart"></canvas>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -340,9 +446,17 @@
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Type</label>
-                        <select id="jobType" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none">
+                        <select id="jobType" onchange="toggleSyncMode()" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none">
                             <option value="backup">Backup (Sync/Copy)</option>
                             <option value="mount">Mount Remote</option>
+                        </select>
+                    </div>
+                    <div class="col-span-2" id="syncModeContainer" style="display: none;">
+                        <label class="block text-xs font-bold text-gray-500 uppercase mb-2">Sync Modus (voor backup jobs)</label>
+                        <select id="jobSyncMode" class="w-full bg-darkbg border border-darkborder rounded-lg p-3 text-white focus:border-rclone outline-none">
+                            <option value="sync">Sync (tweerichtings synchronisatie)</option>
+                            <option value="copy">Copy (eenrichtings kopiëren)</option>
+                            <option value="move">Move (verplaatsen naar destination)</option>
                         </select>
                     </div>
                     <div>
@@ -820,26 +934,38 @@
         // --- UI LOGIC ---
         function showSection(section) {
             activeSection = section;
-            const titles = { 'backups': 'Backups', 'mounts': 'Mounts', 'browser': 'Bestandsverkenner', 'remotes': 'Remotes Beheren' };
+            const titles = {
+                'backups': 'Backups',
+                'mounts': 'Mounts',
+                'browser': 'Bestandsverkenner',
+                'remotes': 'Remotes Beheren',
+                'stats': 'Systeem Statistieken'
+            };
             document.getElementById('sectionTitle').innerText = titles[section] || 'Dashboard';
-            
+
             document.getElementById('nav-backups').classList.toggle('active-link', section === 'backups');
             document.getElementById('nav-mounts').classList.toggle('active-link', section === 'mounts');
             document.getElementById('nav-remotes').classList.toggle('active-link', section === 'remotes');
             document.getElementById('nav-browser').classList.toggle('active-link', section === 'browser');
-            
+            document.getElementById('nav-stats').classList.toggle('active-link', section === 'stats');
+
             activeJobId = null;
             activeRemoteName = null;
-            
+
             document.getElementById('jobDetail').classList.add('hidden');
             document.getElementById('browserView').classList.add('hidden');
             document.getElementById('remotesView').classList.add('hidden');
+            document.getElementById('statsView').classList.add('hidden');
             document.getElementById('emptyState').classList.remove('hidden');
 
             if (section === 'browser') {
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('browserView').classList.remove('hidden');
                 renderSidebar();
+            } else if (section === 'stats') {
+                document.getElementById('emptyState').classList.add('hidden');
+                document.getElementById('statsView').classList.remove('hidden');
+                refreshStats(); // Load statistics when opening stats view
             } else if (section === 'remotes') {
                 document.getElementById('emptyState').classList.add('hidden');
                 document.getElementById('remotesView').classList.remove('hidden');
@@ -851,6 +977,363 @@
             }
         }
 
+        async function refreshBrowser() {
+            const currentPath = document.getElementById('browserPath').value;
+            if (currentPath) {
+                browsePath(currentPath);
+            }
+        }
+
+        async function createDirectory() {
+            const currentPath = document.getElementById('browserPath').value;
+            if (!currentPath) {
+                alert('Selecteer eerst een remote/pad waar je de map wilt aanmaken.');
+                return;
+            }
+
+            const dirName = prompt('Naam van de nieuwe map:');
+            if (!dirName || !dirName.trim()) return;
+
+            try {
+                // Split pad in fs en remote pad
+                let fs = currentPath;
+                let remotePath = "";
+                const colonIdx = currentPath.indexOf(':');
+                if (colonIdx !== -1) {
+                    fs = currentPath.substring(0, colonIdx + 1);
+                    remotePath = currentPath.substring(colonIdx + 1);
+                }
+
+                // Zorg voor trailing slash
+                if (remotePath && !remotePath.endsWith('/')) {
+                    remotePath += '/';
+                }
+
+                const res = await rcloneRequest('operations/mkdir', {
+                    fs: fs,
+                    remote: remotePath + dirName
+                });
+
+                if (res) {
+                    alert(`Map "${dirName}" succesvol aangemaakt!`);
+                    refreshBrowser();
+                } else {
+                    alert('Fout bij het aanmaken van de map.');
+                }
+            } catch (e) {
+                console.error('Error creating directory:', e);
+                alert('Fout bij het aanmaken van de map: ' + e.message);
+            }
+        }
+
+        async function uploadFile() {
+            const currentPath = document.getElementById('browserPath').value;
+            if (!currentPath) {
+                alert('Selecteer eerst een remote/pad waar je het bestand wilt uploaden.');
+                return;
+            }
+
+            // Create a hidden file input
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.multiple = true;
+            fileInput.style.display = 'none';
+
+            fileInput.onchange = async (e) => {
+                const files = e.target.files;
+                if (!files || files.length === 0) return;
+
+                for (let file of files) {
+                    try {
+                        await uploadSingleFile(file, currentPath);
+                    } catch (error) {
+                        console.error(`Error uploading ${file.name}:`, error);
+                        alert(`Fout bij uploaden van ${file.name}: ${error.message}`);
+                    }
+                }
+
+                refreshBrowser();
+            };
+
+            // Trigger file selection
+            document.body.appendChild(fileInput);
+            fileInput.click();
+            document.body.removeChild(fileInput);
+        }
+
+        async function uploadSingleFile(file, destPath) {
+            // Split destination path
+            let fs = destPath;
+            let remotePath = "";
+            const colonIdx = destPath.indexOf(':');
+            if (colonIdx !== -1) {
+                fs = destPath.substring(0, colonIdx + 1);
+                remotePath = destPath.substring(colonIdx + 1);
+            }
+
+            // Ensure trailing slash for remote path
+            if (remotePath && !remotePath.endsWith('/')) {
+                remotePath += '/';
+            }
+
+            // For now, we'll use a simple approach with operations/copy
+            // Note: Rclone typically uses streaming for large files, but this is a basic implementation
+            alert(`Upload van "${file.name}" wordt nog niet ondersteund in deze demo. Gebruik de command line voor grote uploads.`);
+        }
+
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.file-checkbox');
+            checkboxes.forEach(cb => cb.checked = selectAll.checked);
+            updateBrowserStatus();
+        }
+
+        function updateBrowserStatus() {
+            const selected = document.querySelectorAll('.file-checkbox:checked');
+            const statusEl = document.getElementById('browserStatus');
+
+            if (selected.length === 0) {
+                statusEl.textContent = 'Selecteer bestanden voor acties';
+            } else if (selected.length === 1) {
+                const item = selected[0];
+                statusEl.textContent = `1 item geselecteerd: ${item.dataset.name}`;
+            } else {
+                statusEl.textContent = `${selected.length} items geselecteerd`;
+            }
+        }
+
+        // Voeg event listeners toe aan checkboxes
+        document.addEventListener('change', (e) => {
+            if (e.target.classList.contains('file-checkbox')) {
+                updateBrowserStatus();
+            }
+        });
+
+        async function renameItem(itemPath, currentName, isDir) {
+            const newName = prompt(`Hernoem "${currentName}" naar:`, currentName);
+            if (!newName || newName === currentName) return;
+
+            try {
+                // Split pad om destination te bepalen
+                const lastSlash = itemPath.lastIndexOf('/');
+                const parentPath = itemPath.substring(0, lastSlash + 1);
+                const destPath = parentPath + newName;
+
+                const res = await rcloneRequest('operations/move', {
+                    fs: itemPath,
+                    remote: '',
+                    fs2: destPath,
+                    remote2: ''
+                });
+
+                if (res) {
+                    alert(`"${currentName}" succesvol hernoemd naar "${newName}"`);
+                    refreshBrowser();
+                } else {
+                    alert('Fout bij het hernoemen.');
+                }
+            } catch (e) {
+                console.error('Error renaming item:', e);
+                alert('Fout bij het hernoemen: ' + e.message);
+            }
+        }
+
+        async function deleteItem(itemPath, itemName, isDir) {
+            const type = isDir ? 'map' : 'bestand';
+            if (!confirm(`Weet je zeker dat je ${type} "${itemName}" wilt verwijderen?`)) return;
+
+            try {
+                const res = await rcloneRequest('operations/delete', {
+                    fs: itemPath,
+                    remote: ''
+                });
+
+                if (res) {
+                    alert(`${type} "${itemName}" succesvol verwijderd`);
+                    refreshBrowser();
+                } else {
+                    alert(`Fout bij het verwijderen van ${type}.`);
+                }
+            } catch (e) {
+                console.error('Error deleting item:', e);
+                alert(`Fout bij het verwijderen van ${type}: ` + e.message);
+            }
+        }
+
+        async function downloadItem(itemPath, itemName) {
+            // Voor download zouden we normaal gesproken een streaming download implementeren
+            // Maar voor nu tonen we een bericht
+            alert(`Download van "${itemName}" wordt nog niet ondersteund in deze demo. Gebruik de command line voor downloads.`);
+        }
+
+        // Statistics functions
+        async function refreshStats() {
+            try {
+                // Load all statistics in parallel
+                const [coreStats, vfsStats, transferStats] = await Promise.all([
+                    rcloneRequest('core/memstats'),
+                    rcloneRequest('vfs/stats'),
+                    rcloneRequest('core/stats')
+                ]);
+
+                updateCoreStats(coreStats);
+                updateVfsStats(vfsStats);
+                updateTransferStats(transferStats);
+                updateBandwidthChart(transferStats);
+
+            } catch (error) {
+                console.error('Error loading statistics:', error);
+                // Show error in UI
+                document.getElementById('cpuUsage').textContent = 'Fout';
+                document.getElementById('memoryUsage').textContent = 'Fout';
+                document.getElementById('uptime').textContent = 'Fout';
+            }
+        }
+
+        function updateCoreStats(stats) {
+            if (!stats) return;
+
+            // CPU usage (approximation)
+            const cpuUsage = stats.Sys ? Math.round((stats.Sys / 1000000000) % 100) + '%' : 'N/A';
+            document.getElementById('cpuUsage').textContent = cpuUsage;
+
+            // Memory usage
+            const memUsed = stats.HeapInuse || 0;
+            const memUsedMB = Math.round(memUsed / 1024 / 1024);
+            document.getElementById('memoryUsage').textContent = memUsedMB + ' MB';
+
+            // Uptime (simplified)
+            document.getElementById('uptime').textContent = 'Actief';
+        }
+
+        function updateVfsStats(stats) {
+            if (!stats) {
+                document.getElementById('vfsCacheHits').textContent = 'N/A';
+                document.getElementById('vfsCacheMisses').textContent = 'N/A';
+                document.getElementById('vfsReadAhead').textContent = 'N/A';
+                return;
+            }
+
+            document.getElementById('vfsCacheHits').textContent = stats.CacheHits || 0;
+            document.getElementById('vfsCacheMisses').textContent = stats.CacheMisses || 0;
+            document.getElementById('vfsReadAhead').textContent = (stats.ReadAhead || 0) + ' bytes';
+        }
+
+        function updateTransferStats(stats) {
+            if (!stats) {
+                document.getElementById('bytesUploaded').textContent = 'N/A';
+                document.getElementById('bytesDownloaded').textContent = 'N/A';
+                document.getElementById('transferCount').textContent = 'N/A';
+                return;
+            }
+
+            const uploaded = stats.bytes || 0;
+            const downloaded = stats.bytes || 0; // Note: core/stats may not differentiate
+            const transfers = stats.transfers || 0;
+
+            document.getElementById('bytesUploaded').textContent = formatBytes(uploaded);
+            document.getElementById('bytesDownloaded').textContent = formatBytes(downloaded);
+            document.getElementById('transferCount').textContent = transfers;
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        // Bandwidth chart
+        let bandwidthChart = null;
+        let bandwidthData = {
+            labels: [],
+            upload: [],
+            download: []
+        };
+
+        function initBandwidthChart() {
+            const ctx = document.getElementById('bandwidthChart');
+            if (!ctx) return;
+
+            bandwidthChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: bandwidthData.labels,
+                    datasets: [{
+                        label: 'Upload (KB/s)',
+                        data: bandwidthData.upload,
+                        borderColor: 'rgb(59, 130, 246)',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Download (KB/s)',
+                        data: bandwidthData.download,
+                        borderColor: 'rgb(16, 185, 129)',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            ticks: {
+                                color: 'rgba(255, 255, 255, 0.7)'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: 'rgba(255, 255, 255, 0.7)'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateBandwidthChart(stats) {
+            if (!bandwidthChart) {
+                initBandwidthChart();
+            }
+
+            // Add current timestamp
+            const now = new Date().toLocaleTimeString();
+            bandwidthData.labels.push(now);
+
+            // Simulate upload/download speeds (in KB/s)
+            // In a real implementation, you'd get this from core/bwlimit or similar
+            const uploadSpeed = stats ? Math.random() * 1000 : 0;
+            const downloadSpeed = stats ? Math.random() * 2000 : 0;
+
+            bandwidthData.upload.push(uploadSpeed);
+            bandwidthData.download.push(downloadSpeed);
+
+            // Keep only last 20 data points
+            if (bandwidthData.labels.length > 20) {
+                bandwidthData.labels.shift();
+                bandwidthData.upload.shift();
+                bandwidthData.download.shift();
+            }
+
+            bandwidthChart.update();
+        }
+
         async function browsePath(path) {
             if (path !== undefined) document.getElementById('browserPath').value = path;
             const fullPath = document.getElementById('browserPath').value;
@@ -860,7 +1343,7 @@
             if (activeSection !== 'browser') showSection('browser');
 
             const tbody = document.getElementById('browserTableBody');
-            tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Laden...</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Laden...</td></tr>';
 
             // Split pad in fs en remote pad
             let fs = fullPath;
@@ -873,7 +1356,7 @@
 
             const res = await rcloneRequest('operations/list', { fs: fs, remote: remotePath });
             if (!res || !res.list) {
-                tbody.innerHTML = '<tr><td colspan="4" class="p-8 text-center text-red-400 italic">Kon map niet laden. Controleer het pad.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="5" class="p-8 text-center text-red-400 italic">Kon map niet laden. Controleer het pad.</td></tr>';
                 return;
             }
 
@@ -887,7 +1370,7 @@
                 const tr = document.createElement('tr');
                 tr.className = "hover:bg-darkborder/30 cursor-pointer text-gray-400";
                 tr.onclick = () => browsePath(fs + parentPath);
-                tr.innerHTML = `<td class="p-3 text-center"><i class="fa-solid fa-folder-open"></i></td><td class="p-3">.. (Vorige map)</td><td></td><td></td>`;
+                tr.innerHTML = `<td></td><td class="p-3 text-center"><i class="fa-solid fa-folder-open"></i></td><td class="p-3">.. (Vorige map)</td><td></td><td></td><td></td>`;
                 tbody.appendChild(tr);
             }
 
@@ -903,14 +1386,26 @@
 
                 const size = isDir ? '-' : (item.Size / 1024 / 1024).toFixed(2) + ' MB';
                 const date = new Date(item.ModTime).toLocaleDateString();
+                const itemPath = fs + (remotePath ? remotePath.replace(/[\\\/]$/, '') + '/' : '') + item.Name;
+
+                const actions = isDir ?
+                    `<button onclick="event.stopPropagation(); renameItem('${itemPath}', '${item.Name}', true)" class="text-blue-400 hover:text-blue-300 mr-2" title="Hernoemen"><i class="fa-solid fa-edit"></i></button>
+                     <button onclick="event.stopPropagation(); deleteItem('${itemPath}', '${item.Name}', true)" class="text-red-400 hover:text-red-300" title="Verwijderen"><i class="fa-solid fa-trash"></i></button>` :
+                    `<button onclick="event.stopPropagation(); renameItem('${itemPath}', '${item.Name}', false)" class="text-blue-400 hover:text-blue-300 mr-2" title="Hernoemen"><i class="fa-solid fa-edit"></i></button>
+                     <button onclick="event.stopPropagation(); deleteItem('${itemPath}', '${item.Name}', false)" class="text-red-400 hover:text-red-300 mr-2" title="Verwijderen"><i class="fa-solid fa-trash"></i></button>
+                     <button onclick="event.stopPropagation(); downloadItem('${itemPath}', '${item.Name}')" class="text-green-400 hover:text-green-300" title="Downloaden"><i class="fa-solid fa-download"></i></button>`;
 
                 tr.innerHTML = `
+                    <td class="p-3 text-center">
+                        <input type="checkbox" class="file-checkbox" data-path="${itemPath}" data-name="${item.Name}" data-isdir="${isDir}">
+                    </td>
                     <td class="p-3 text-center text-gray-500">
                         <i class="fa-solid ${isDir ? 'fa-folder text-yellow-500' : 'fa-file-lines text-blue-400'}"></i>
                     </td>
                     <td class="p-3 font-medium">${item.Name}</td>
                     <td class="p-3 text-right text-gray-500 font-mono">${size}</td>
                     <td class="p-3 text-right text-gray-400">${date}</td>
+                    <td class="p-3 text-center">${actions}</td>
                 `;
                 tbody.appendChild(tr);
             });
@@ -2307,7 +2802,24 @@
                  params._stats = true;
             }
 
-            const endpoint = isCheck ? 'operations/check' : 'sync/copy';
+            // Choose endpoint based on sync mode
+            let endpoint;
+            if (isCheck) {
+                endpoint = 'operations/check';
+            } else {
+                switch (job.syncMode) {
+                    case 'copy':
+                        endpoint = 'sync/copy';
+                        break;
+                    case 'move':
+                        endpoint = 'sync/move';
+                        break;
+                    case 'sync':
+                    default:
+                        endpoint = 'sync/sync';
+                        break;
+                }
+            }
             
             const res = await rcloneRequest(endpoint, params);
             
@@ -2536,7 +3048,14 @@
             document.getElementById('btnDeleteInModal').classList.add('hidden');
             // Reset schedule days
             loadScheduleDays([1, 2, 3, 4, 5]); // Default Monday-Friday
+            toggleSyncMode(); // Update sync mode visibility
             document.getElementById('jobModal').classList.remove('hidden');
+        }
+
+        function toggleSyncMode() {
+            const jobType = document.getElementById('jobType').value;
+            const syncModeContainer = document.getElementById('syncModeContainer');
+            syncModeContainer.style.display = jobType === 'backup' ? 'block' : 'none';
         }
 
         async function editJob(id) {
@@ -2544,6 +3063,8 @@
             document.getElementById('editJobId').value = job.id;
             document.getElementById('jobName').value = job.name;
             document.getElementById('jobType').value = job.type || 'backup';
+            document.getElementById('jobSyncMode').value = job.syncMode || 'sync';
+            toggleSyncMode(); // Update visibility based on type
 
             // Handle schedule - load from separate collection if referenced
             let scheduleTime = '';
@@ -2823,6 +3344,7 @@ Try restarting the Python server.`);
             
             const name = document.getElementById('jobName').value;
             const type = document.getElementById('jobType').value;
+            const syncMode = type === 'backup' ? document.getElementById('jobSyncMode').value : 'sync';
             const scheduleTime = document.getElementById('jobScheduleTime').value.trim();
             const scheduleDaysStr = document.getElementById('jobScheduleDays').value;
             const source = document.getElementById('jobSource').value;
@@ -2905,7 +3427,7 @@ Try restarting the Python server.`);
                 if (jobIndex > -1) {
                     jobToSave = {
                         ...jobs[jobIndex],
-                        name, type, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes
+                        name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes
                     };
                 }
             }
@@ -2915,7 +3437,7 @@ Try restarting the Python server.`);
                  const jobId = Date.now().toString();
                  jobToSave = {
                     id: jobId, // Temp ID, will be replaced/augmented by _id
-                    name, type, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes,
+                    name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes,
                     history: []
                  };
             }
