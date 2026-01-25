@@ -1122,7 +1122,7 @@
                 const res = await rcloneRequest('operations/move', {
                     fs: itemPath,
                     remote: '',
-                    fs2: destPath,
+                    fs2: parentPath + newName,
                     remote2: ''
                 });
 
@@ -1242,6 +1242,29 @@
             const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
             const i = Math.floor(Math.log(bytes) / Math.log(k));
             return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+        }
+
+        function formatStatsBytes(bytes) {
+            if (!bytes && bytes !== 0) return "-";
+            let mb = bytes / 1024 / 1024;
+            if (mb >= 1024 * 1000) { // More than 1000 GB
+                return (mb / 1024 / 1024).toFixed(2) + " TB";
+            }
+            if (mb >= 1024) {
+                return (mb / 1024).toFixed(2) + " GB";
+            }
+            return mb.toFixed(2) + " MB";
+        }
+
+        function formatStatsDuration(seconds) {
+            if (!seconds && seconds !== 0) return "-";
+            if (seconds >= 3600) {
+                return (seconds / 3600).toFixed(1) + "u";
+            }
+            if (seconds >= 60) {
+                return (seconds / 60).toFixed(1) + "m";
+            }
+            return seconds.toFixed(0) + "s";
         }
 
         // Bandwidth chart
@@ -2027,7 +2050,7 @@
                         <button onclick="startJob('${job.id}')" class="flex-1 bg-green-900/40 hover:bg-green-600 text-green-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-green-800/30">
                             <i class="fa-solid fa-play text-[8px]"></i> START
                         </button>
-                        <button onclick="editJob('${job.id}').catch(console.error)" class="flex-1 bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-blue-800/30">
+                        <button onclick="editJob('${job.id}').catch(console.error)" class="flex-1 bg-blue-900/40 hover:bg-blue-600 text-blue-400 hover:text-white py-1.5 rounded text-[10px] font-bold transition flex items-center justify-center gap-1.5 border border-green-800/30">
                             <i class="fa-solid fa-edit text-[8px]"></i> EDIT
                         </button>
                     </div>
@@ -2726,7 +2749,6 @@
         }
 
         // --- ACTIONS ---
-        // --- ACTIONS ---
         function updateRunState(isRunning) {
              const btnRun = document.getElementById('btnRunNow');
              const btnCheck = document.getElementById('btnCheckJob');
@@ -2889,20 +2911,20 @@
                     const activeTransfersSection = document.getElementById('activeTransfersSection');
 
                     // If checking, stats might be different or less relevant during run
-                    if (uiBytes) uiBytes.innerText = (statsRes.bytes / 1024 / 1024).toFixed(2) + " MB";
-                    if (uiSpeed) uiSpeed.innerText = (statsRes.speed / 1024 / 1024).toFixed(2) + " MB/s";
+                    if (uiBytes) uiBytes.innerText = formatStatsBytes(statsRes.bytes);
+                    if (uiSpeed) uiSpeed.innerText = formatStatsBytes(statsRes.speed) + "/s";
                     if (uiFiles) uiFiles.innerText = `${statsRes.transfers} / ${statsRes.checks}`;
                     if (uiSkipped) uiSkipped.innerText = `${statsRes.deletes + (statsRes.checks - statsRes.transfers)} overgeslagen`;
                     
                     if (uiStatus) uiStatus.innerText = type === 'check' ? "Verifiëren..." : "In uitvoering...";
                     
-                    if (uiTime) uiTime.innerText = statsRes.elapsedTime.toFixed(0) + "s";
+                    if (uiTime) uiTime.innerText = formatStatsDuration(statsRes.elapsedTime);
                     if (uiErrors) {
                         uiErrors.innerText = statsRes.errors + " errors";
                         uiErrors.className = statsRes.errors > 0 ? "text-[10px] text-red-500 mt-0.5 font-bold" : "text-[10px] text-gray-500 mt-0.5";
                     }
-                    if (uiTotalBytes) uiTotalBytes.innerText = statsRes.totalBytes ? "van " + (statsRes.totalBytes / 1024 / 1024).toFixed(2) + " MB" : "";
-                    if (uiEta) uiEta.innerText = statsRes.eta ? "ETA: " + statsRes.eta.toFixed(0) + "s" : "ETA: -";
+                    if (uiTotalBytes) uiTotalBytes.innerText = statsRes.totalBytes ? "van " + formatStatsBytes(statsRes.totalBytes) : "";
+                    if (uiEta) uiEta.innerText = statsRes.eta ? "ETA: " + formatStatsDuration(statsRes.eta) : "ETA: -";
 
                     // Update global progress for sidebar
                     activeJobProgress.bytes = statsRes.bytes;
@@ -2923,16 +2945,16 @@
                             const tr = document.createElement('tr');
                             tr.className = "border-b border-darkborder/30 last:border-0";
                             const perc = t.percentage || 0;
-                            const sizeMb = (t.size / 1024 / 1024).toFixed(2);
-                            const speedMb = (t.speedAvg / 1024 / 1024).toFixed(2);
+                            const sizeFormatted = formatStatsBytes(t.size);
+                            const speedFormatted = formatStatsBytes(t.speedAvg);
                             
                             tr.innerHTML = `
                                 <td class="p-3">
                                     <div class="truncate w-48 text-gray-300" title="${t.name}">${t.name}</div>
                                 </td>
-                                <td class="p-3 text-right font-mono text-xs text-gray-400">${sizeMb} MB</td>
-                                <td class="p-3 text-right font-mono text-xs text-yellow-500">${speedMb} MB/s</td>
-                                <td class="p-3 text-right font-mono text-xs text-blue-300">${t.eta || '-'}s</td>
+                                <td class="p-3 text-right font-mono text-xs text-gray-400">${sizeFormatted}</td>
+                                <td class="p-3 text-right font-mono text-xs text-yellow-500">${speedFormatted}/s</td>
+                                <td class="p-3 text-right font-mono text-xs text-blue-300">${t.eta ? formatStatsDuration(t.eta) : '-'}</td>
                                 <td class="p-3 align-middle">
                                     <div class="w-full bg-darkbg rounded-full h-1.5">
                                         <div class="bg-blue-500 h-1.5 rounded-full" style="width: ${perc}%"></div>
@@ -2960,10 +2982,10 @@
 
                     const log = {
                         date: new Date().toLocaleString(),
-                        duration: statsRes ? statsRes.elapsedTime.toFixed(1) + 's' : '?',
+                        duration: statsRes ? formatStatsDuration(statsRes.elapsedTime) : '?',
                         status: success ? (type === 'check' ? 'Gecheckt' : 'Succes') : 'Fout',
-                        size: statsRes ? (statsRes.bytes / 1024 / 1024).toFixed(2) + ' MB' : '?',
-                        speed: statsRes ? (statsRes.speed / 1024 / 1024).toFixed(2) + ' MB/s' : '?',
+                        size: statsRes ? formatStatsBytes(statsRes.bytes) : '?',
+                        speed: statsRes ? formatStatsBytes(statsRes.speed) + '/s' : '?',
                         files: statsRes ? `${statsRes.transfers} / ${statsRes.checks}` : '?',
                         skipped: statsRes ? (statsRes.deletes + (statsRes.checks - statsRes.transfers)) : 0,
                         errors: statsRes ? statsRes.errors : 0,
