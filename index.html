@@ -610,68 +610,7 @@
         let config = JSON.parse(localStorage.getItem('rclone_config')) || { url: 'http://127.0.0.1:5572', user: '', pass: '' };
         let activeJobId = null;
         let activeRemoteName = null;
-        
-const GIGABYTE = 1024 ** 3;
-const TERABYTE = 1024 ** 4;
-
-function formatBytes(bytes, decimals = 2) {
-    if (bytes === 0) return '0 B';
-    if (bytes === null || bytes === undefined) return '?';
-
-    const dm = decimals < 0 ? 0 : decimals;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-
-    const i = Math.floor(Math.log(bytes) / Math.log(1024));
-    
-    if (i > 3) { // GB of TB
-         const gb = bytes / GIGABYTE;
-         if (gb >= 1024) {
-             const tb = gb / 1024;
-             return `${parseFloat(tb.toFixed(dm))} TB`;
-         } else {
-             return `${parseFloat(gb.toFixed(dm))} GB`;
-         }
-    }
-    
-    return parseFloat((bytes / (1024 ** i)).toFixed(dm)) + ' ' + sizes[i];
-}
-
-function formatTime(seconds, decimals = 1) {
-    if (seconds === null || seconds === undefined || isNaN(seconds)) return '-';
-    if (seconds === 0) return '0s';
-
-    const minutes = seconds / 60;
-    if (minutes >= 60) {
-        const hours = minutes / 60;
-        return `${parseFloat(hours.toFixed(decimals))}u`; // u for 'uren'
-    }
-    if (seconds >= 60) {
-        return `${parseFloat(minutes.toFixed(decimals))}m`; // m for 'minuten'
-    }
-    
-    return `${parseFloat(seconds.toFixed(decimals))}s`;
-}
-
-function formatHistoryDuration(durationString) {
-    if (!durationString || durationString === '-') return '-';
-    
-    const parts = durationString.split(':'); 
-    if (parts.length !== 3) return durationString; 
-
-    const hours = parseInt(parts[0] || 0);
-    const minutes = parseInt(parts[1] || 0);
-    const seconds = parseInt(parts[2] || 0);
-
-    const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-    
-    if (totalSeconds >= 3600) { 
-        return `${(totalSeconds / 3600).toFixed(1)}u`;
-    }
-    if (totalSeconds >= 60) { 
-        return `${(totalSeconds / 60).toFixed(1)}m`;
-    }
-    return `${totalSeconds}s`;
-} // Track if a job is currently running
+        let activeRcloneJobId = null; // Track if a job is currently running
         let activeSection = 'backups';
         let monitoringInterval = null;
         let activeJobProgress = { bytes: 0, totalBytes: 0, percentage: 0 }; // Track progress for active job
