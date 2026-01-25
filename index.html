@@ -3481,7 +3481,7 @@ Try restarting the Python server.`);
 
             // Save to Mongo
             const savedJob = await saveJobToMongo(jobToSave);
-
+            
             if (savedJob) {
                 console.log('Job saved successfully:', savedJob);
 
@@ -3512,7 +3512,34 @@ Try restarting the Python server.`);
             document.getElementById('configModal').classList.remove('hidden');
         }
 
-        function saveConfig() {
+        async function updateBackendConfig() {
+            try {
+                const clientId = getClientId();
+                const configData = {
+                    rcloneUrl: config.url,
+                    rcloneUser: config.user,
+                    rclonePass: config.pass,
+                    clientId: clientId,
+                    mongodbUrl: API_URL
+                };
+                
+                const response = await fetch('/api/update_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(configData)
+                });
+                
+                if (response.ok) {
+                    console.log('Backend config updated successfully');
+                } else {
+                    console.error('Failed to update backend config');
+                }
+            } catch (error) {
+                console.error('Error updating backend config:', error);
+            }
+        }
+
+        async function saveConfig() {
             // Save client ID
             const clientId = document.getElementById('clientId').value.trim();
             if (clientId) {
@@ -3525,12 +3552,17 @@ Try restarting the Python server.`);
             config.user = document.getElementById('rcloneUser').value;
             config.pass = document.getElementById('rclonePass').value;
             localStorage.setItem('rclone_config', JSON.stringify(config));
+            
+            // Update backend config
+            await updateBackendConfig();
+            
             document.getElementById('configModal').classList.add('hidden');
             updateStatus(false); // Force check on next request
-            alert('Configuratie opgeslagen - Herlaad de pagina om wijzigingen volledig toe te passen');
+            alert('Configuratie opgeslagen');
         }
 
         // --- INIT ---
+        updateBackendConfig();
         syncWithServer();
         renderSidebar();
         // Start time update
