@@ -238,6 +238,39 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
             self.send_header('Content-type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(jobs).encode())
+        elif self.path == '/api/update_config':
+            try:
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                new_config = json.loads(post_data)
+
+                global RCLONE_RC_URL, RCLONE_USER, RCLONE_PASS, CLIENT_ID, MONGODB_URL
+                
+                if 'rcloneUrl' in new_config:
+                    RCLONE_RC_URL = new_config['rcloneUrl']
+                if 'rcloneUser' in new_config:
+                    RCLONE_USER = new_config['rcloneUser']
+                if 'rclonePass' in new_config:
+                    RCLONE_PASS = new_config['rclonePass']
+                if 'clientId' in new_config:
+                    CLIENT_ID = new_config['clientId']
+                    mongo_client.client_id = CLIENT_ID
+                if 'mongodbUrl' in new_config:
+                    MONGODB_URL = new_config['mongodbUrl']
+                    mongo_client.base_url = MONGODB_URL
+
+                print(f"[{datetime.now()}] Config updated: RC_URL={RCLONE_RC_URL}, CLIENT_ID={CLIENT_ID}", flush=True)
+
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "updated"}).encode())
+            except Exception as e:
+                print(f"[{datetime.now()}] Error updating config: {e}", flush=True)
+                self.send_response(500)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"error": str(e)}).encode())
         elif self.path == '/api/start_scheduled_job':
             content_length = int(self.headers['Content-Length'])
             post_data = self.rfile.read(content_length)
