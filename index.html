@@ -2781,6 +2781,11 @@
                 _async: true
             };
 
+            // Remove top-level excludes if present, as it's handled in _filter
+            if (params.excludes) {
+                delete params.excludes;
+            }
+
             // Add Excludes via _filter
             if (job.excludes && job.excludes.length > 0) {
                 // Normalize excludes to be relative to srcFs as rclone expects
@@ -3456,7 +3461,7 @@ Try restarting the Python server.`);
                 if (jobIndex > -1) {
                     jobToSave = {
                         ...jobs[jobIndex],
-                        name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes
+                        name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest
                     };
                 }
             }
@@ -3466,7 +3471,7 @@ Try restarting the Python server.`);
                  const jobId = Date.now().toString();
                  jobToSave = {
                     id: jobId, // Temp ID, will be replaced/augmented by _id
-                    name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest, excludes,
+                    name, type, syncMode, schedule: scheduleId ? { _id: scheduleId } : null, source, dest,
                     history: []
                  };
             }
