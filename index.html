@@ -2065,7 +2065,7 @@
 
         async function getFreeSpace(remote) {
             try {
-                const result = await rcloneRequest('api/operations/about', { fs: remote + ':' });
+                const result = await rcloneRequest('operations/about', { fs: remote + ':' });
                 if (result && result.free) {
                     const freeGB = (result.free / 1024 / 1024 / 1024).toFixed(2);
                     alert(`Free space on ${remote}: ${freeGB} GB`);
