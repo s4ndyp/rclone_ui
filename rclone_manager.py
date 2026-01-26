@@ -305,6 +305,16 @@ class RcloneManagerHandler(http.server.SimpleHTTPRequestHandler):
                 self.send_header('Content-type', 'application/json')
                 self.end_headers()
                 self.wfile.write(json.dumps(res).encode())
+            elif self.path == '/api/operations/about':
+                # Proxy to rclone RC operations/about
+                content_length = int(self.headers['Content-Length'])
+                post_data = self.rfile.read(content_length)
+                params = json.loads(post_data)
+                res = rclone_rc_call("operations/about", params)
+                self.send_response(200)
+                self.send_header('Content-type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(res).encode())
 
     def do_GET(self):
         if self.path == '/api/get_jobs':
