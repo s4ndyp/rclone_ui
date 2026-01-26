@@ -2064,11 +2064,11 @@
         }
 
         async function getFreeSpace(remote) {
-            const command = `operations/about remote=${remote}: | jq '.free / 1024 / 1024 / 1024 | . + \" GB\"'`;
             try {
-                const result = await rcloneRequest(command);
-                if (result) {
-                    alert(`Free space on ${remote}: ${result}`);
+                const result = await rcloneRequest('operations/about', { remote: remote + ':' });
+                if (result && result.free) {
+                    const freeGB = (result.free / 1024 / 1024 / 1024).toFixed(2);
+                    alert(`Free space on ${remote}: ${freeGB} GB`);
                 } else {
                     alert("Kon de vrije ruimte niet ophalen.");
                 }
